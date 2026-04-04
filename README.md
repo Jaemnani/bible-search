@@ -8,7 +8,7 @@
 | 구분 | 선택 |
 |---|---|
 | 프레임워크 | Next.js (App Router, TypeScript) |
-| 임베딩 모델 | `gemini-embedding-001` (256차원, 오프라인 생성) |
+| 임베딩 모델 | `gemini-embedding-001` (512차원, 오프라인 생성) |
 | 벡터 DB | 정적 파일 (`embeddings_dense.bin` · `bible.json`) |
 | 검색 방식 | BM25(희소) + Cosine(밀집) 하이브리드 → RRF 합산 |
 | 쿼리 확장 | Gemini 2.5 Flash Lite (감정어 → 성경 키워드 변환) |
@@ -21,7 +21,7 @@
 사용자 쿼리
     │
     ├─ [병렬] Gemini 쿼리 확장 → 감정 분석 + 성경 키워드 추출
-    │         Gemini 임베딩   → 쿼리 벡터 (256차원)
+    │         Gemini 임베딩   → 쿼리 벡터 (512차원)
     │
     ├─ Hybrid Search
     │   ├─ Dense  : Cosine Similarity (embeddings_dense.bin)
@@ -37,8 +37,8 @@
 |---|---|
 | 총 구절 수 | 30,944개 |
 | 언어 | 한국어(개역개정) + 영어(NIV) |
-| Dense 임베딩 | `gemini-embedding-001` · 256차원 · uint8 양자화 |
-| 파일 크기 | `bible.json` 23MB + `embeddings_dense.bin` 7.6MB |
+| Dense 임베딩 | `gemini-embedding-001` · 512차원 · uint8 양자화 |
+| 파일 크기 | `bible.json` 23MB + `embeddings_dense.bin` 15MB |
 
 ## 개발 환경 설정
 
