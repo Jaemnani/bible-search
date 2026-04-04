@@ -253,7 +253,7 @@ export default function Home() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="감정이나 상황을 자유롭게 입력하세요..."
-              className="bg-input border-border focus-visible:ring-primary/40 h-11 text-[0.95rem]"
+              className="bg-input border-border focus-visible:ring-primary/40 h-11 text-base"
               autoComplete="off"
             />
             <Button

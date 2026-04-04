@@ -69,16 +69,26 @@ async function expandQueryWithGemini(userQuery: string): Promise<QueryExpansion 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const prompt = `당신은 사용자의 일상적/감정적 고민을 성경의 언어와 주제로 변환하는 전문가입니다.
-사용자의 입력에 담긴 핵심 감정과 상황을 파악하고, 이와 관련된 성경의 핵심 키워드를 JSON 형태로 반환하세요.
-반드시 아래 JSON 형식만 반환하세요. 다른 텍스트는 절대 포함하지 마세요.
+  const prompt = `당신은 한국인 사용자의 감정적 고민을 성경 구절 검색어로 변환하는 전문가입니다.
 
-[입력 예시] "취업이 안 돼서 두려워요"
-[출력 예시]
+다음 순서로 분석하세요:
+1. 핵심 감정 파악 (불안/슬픔/두려움/외로움/분노/지침/죄책감/허무 등)
+2. 근본적 필요 파악 (위로/용기/지혜/용서/평안/소망/힘/회복 등)
+3. 성경 본문에 실제로 등장하는 표현들로 search_query를 구성
+
+search_query 작성 규칙:
+- 실제 성경 구절 문체("두려워하지 말라", "수고하고 무거운 짐", "내가 너와 함께" 등)를 우선
+- 현대 감정어(외롭다, 힘들다)와 성경적 표현을 함께 포함
+- 최소 15단어 이상, 다양한 각도의 표현 포함
+
+반드시 아래 JSON만 반환하세요.
+
+[예시 입력] "취업이 안 돼서 너무 지쳐요"
+[예시 출력]
 {
-  "emotions": ["두려움", "불안", "낙심"],
-  "biblical_keywords": ["평안", "인도하심", "두려워하지 말라", "담대하라"],
-  "search_query": "두려워하지 말라 내가 너와 함께 함이라 평안 인도 낙심하지 말라 담대하라"
+  "emotions": ["지침", "낙심", "불안"],
+  "biblical_keywords": ["새 힘", "인도하심", "소망", "두려워하지 말라", "나의 계획"],
+  "search_query": "수고하고 무거운 짐 진 자들아 내게로 오라 두려워하지 말라 내가 너와 함께 하노라 독수리 날개치며 올라감 새 힘 얻으리니 피곤한 자에게 능력 낙심하지 말라 선을 행하되"
 }
 
 [입력] "${userQuery}"`;
@@ -120,18 +130,25 @@ async function rerankWithGemini(
     .map((c, i) => `[${i + 1}] ${c.book_ko} ${c.chapter}:${c.verse} - ${c.ko}`)
     .join("\n");
 
-  const emotion = expansion ? `사용자 감정: ${expansion.emotions.join(", ")}` : "";
+  const emotionLine  = expansion ? `감정 분석: ${expansion.emotions.join(", ")}` : "";
+  const keywordLine  = expansion ? `핵심 필요: ${expansion.biblical_keywords?.slice(0, 4).join(", ")}` : "";
 
-  const prompt = `사용자가 "${userQuery}"라고 입력했습니다.
-${emotion}
+  const prompt = `사용자 입력: "${userQuery}"
+${emotionLine}
+${keywordLine}
 
-다음 ${candidates.length}개 성경 구절 중 가장 위로가 될 5개를 선택하고 이유를 한 줄씩 적어주세요.
-반드시 아래 JSON 형식만 반환하세요.
+아래 ${candidates.length}개 성경 구절 중, 이 사람에게 가장 직접적으로 도움이 될 5개를 선택하세요.
+
+선택 기준 (중요도 순):
+1. 사용자의 감정·상황에 직접 공명하는가
+2. 구체적인 위로·힘·방향을 주는가
+3. 심판·경고보다 은혜·소망 중심인가
+4. 문장이 명확하고 마음에 와닿는가
 
 구절 목록:
 ${list}
 
-출력:
+반드시 아래 JSON만 반환하세요. reason은 사용자에게 말하듯 1-2문장으로.
 {"results": [{"index": 1, "reason": "이유"}, ...]}`;
 
   try {

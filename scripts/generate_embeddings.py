@@ -31,7 +31,7 @@ PAID_TIER = True
 
 # ─── 설정 (티어에 따라 자동 결정) ────────────────────────
 BATCH_SIZE       = 100                        # batchEmbedContents 최대 100개
-DENSE_DIM        = 256                        # outputDimensionality
+DENSE_DIM        = 512                        # outputDimensionality
 CHECKPOINT_EVERY = 10                         # N배치(=1000구절)마다 중간 저장
 REQ_INTERVAL     = 0.2 if PAID_TIER else 13.0 # 유료: ~5 req/s / 무료: ~4 req/min
 # ─────────────────────────────────────────────────────────
