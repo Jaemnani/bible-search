@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { Search, Loader2, ChevronDown, ChevronUp, BookOpen } from "lucide-react";
 
-// ──────────────────────────────────────────────
-// Types
-// ──────────────────────────────────────────────
 interface BibleVerse {
   id: number;
   key: string;
@@ -37,175 +40,174 @@ interface SearchResponse {
   error?: string;
 }
 
-// ──────────────────────────────────────────────
-// Tag Suggestions
-// ──────────────────────────────────────────────
 const TAGS = [
-  { label: "🙏 위로가 필요해",    query: "힘들고 외로울 때 위로와 평안" },
-  { label: "💪 용기를 주세요",   query: "두려움을 이기는 용기와 담대함" },
-  { label: "❤️ 하나님의 사랑",   query: "하나님의 사랑과 은혜" },
-  { label: "🌿 감사와 찬양",     query: "감사와 찬양 기쁨" },
-  { label: "🕊️ 평안과 안식",     query: "마음의 평안과 안식" },
-  { label: "🌟 믿음과 소망",     query: "믿음과 소망 확신" },
-  { label: "🔥 시련을 이겨내",   query: "고난과 시련을 이겨내는 힘" },
-  { label: "💡 지혜를 구해",     query: "지혜와 인도하심을 구함" },
-  { label: "🤝 용서와 화해",     query: "용서와 화해 사랑" },
-  { label: "⚡ 새 힘 주세요",    query: "지치고 힘들 때 새 힘과 회복" },
+  { label: "위로가 필요해", query: "힘들고 외로울 때 위로와 평안" },
+  { label: "용기를 주세요", query: "두려움을 이기는 용기와 담대함" },
+  { label: "하나님의 사랑", query: "하나님의 사랑과 은혜" },
+  { label: "감사와 찬양", query: "감사와 찬양 기쁨" },
+  { label: "평안과 안식", query: "마음의 평안과 안식" },
+  { label: "믿음과 소망", query: "믿음과 소망 확신" },
+  { label: "시련을 이겨내", query: "고난과 시련을 이겨내는 힘" },
+  { label: "지혜를 구해", query: "지혜와 인도하심을 구함" },
+  { label: "용서와 화해", query: "용서와 화해 사랑" },
+  { label: "새 힘 주세요", query: "지치고 힘들 때 새 힘과 회복" },
 ];
 
-// ──────────────────────────────────────────────
-// VerseCard Component
-// ──────────────────────────────────────────────
-function VerseCard({ result, delay }: { result: SearchResult; delay: number }) {
+function VerseCard({ result, index }: { result: SearchResult; index: number }) {
   const [showContext, setShowContext] = useState(false);
   const [showEn, setShowEn] = useState(false);
 
-  const scorePercent = Math.min(100, Math.round(result.score * 1e7));
-
   return (
-    <article
-      className="verse-card"
-      style={{ animationDelay: `${delay}ms` }}
+    <Card
+      className="animate-fade-up border-border/60 bg-card hover:border-primary/30 transition-all duration-300"
+      style={{ animationDelay: `${index * 60}ms` }}
     >
-      {/* Score indicator */}
-      <div
-        className="score-bar"
-        style={{ width: `${Math.min(100, 30 + scorePercent)}%` }}
-      />
-
-      {/* Top row */}
-      <div className="verse-card-top">
-        <div className="verse-ref">
-          <span className="verse-book">{result.book_ko}</span>
-          <span className="verse-num">{result.chapter}:{result.verse}</span>
+      <CardContent className="p-6">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="text-[11px] font-semibold text-muted-foreground/60 tabular-nums w-4">
+              {index + 1}
+            </span>
+            <div>
+              <span className="font-semibold text-primary text-sm">
+                {result.book_ko}
+              </span>
+              <span className="text-muted-foreground text-sm ml-1.5">
+                {result.chapter}:{result.verse}
+              </span>
+            </div>
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            <Badge
+              variant="outline"
+              className={
+                result.testament === "OT"
+                  ? "text-violet-400 border-violet-400/30 bg-violet-400/5 text-[10px] px-2 py-0"
+                  : "text-sky-400 border-sky-400/30 bg-sky-400/5 text-[10px] px-2 py-0"
+              }
+            >
+              {result.testament === "OT" ? "구약" : "신약"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="text-primary/70 border-primary/20 bg-primary/5 text-[10px] px-2 py-0"
+            >
+              {result.genre}
+            </Badge>
+          </div>
         </div>
-        <div className="verse-badges">
-          <span className={`badge ${result.testament === "OT" ? "badge-ot" : "badge-nt"}`}>
-            {result.testament === "OT" ? "구약" : "신약"}
-          </span>
-          <span className="badge badge-genre">{result.genre}</span>
-        </div>
-      </div>
 
-      {/* Korean text */}
-      <p className="verse-text-ko">{result.ko}</p>
-
-      {/* Gemini rerank reason */}
-      {result.rerank_reason && (
-        <p style={{
-          marginTop: "10px",
-          fontSize: "0.78rem",
-          color: "var(--gold)",
-          display: "flex",
-          alignItems: "flex-start",
-          gap: "6px",
-          lineHeight: 1.65,
-          opacity: 0.85,
-        }}>
-          <span style={{ flexShrink: 0 }}>✦</span>
-          {result.rerank_reason}
+        {/* Verse text */}
+        <p className="text-foreground/90 text-[1.05rem] leading-[1.95] font-serif word-break-keep-all mb-3">
+          {result.ko}
         </p>
-      )}
 
-      {/* English toggle */}
-      {result.en && (
-        <>
-          <button
-            className="context-toggle"
-            onClick={() => setShowEn(!showEn)}
-            aria-expanded={showEn}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path
-                d={showEn ? "M2 8l4-4 4 4" : "M2 4l4 4 4-4"}
-                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-              />
-            </svg>
-            {showEn ? "NIV 닫기" : "NIV 영어 보기"}
-          </button>
-          {showEn && <p className="verse-text-en">&ldquo;{result.en}&rdquo;</p>}
-        </>
-      )}
+        {/* Rerank reason */}
+        {result.rerank_reason && (
+          <p className="text-[0.78rem] text-primary/70 leading-relaxed mb-3 pl-3 border-l-2 border-primary/30">
+            {result.rerank_reason}
+          </p>
+        )}
 
-      {/* Context expansion */}
-      {result.context && result.context.length > 1 && (
-        <>
-          <button
-            className="context-toggle"
-            onClick={() => setShowContext(!showContext)}
-            aria-expanded={showContext}
-            style={{ marginLeft: result.en ? "16px" : 0 }}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path
-                d={showContext ? "M2 8l4-4 4 4" : "M2 4l4 4 4-4"}
-                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-              />
-            </svg>
-            {showContext ? "문맥 닫기" : `앞뒤 문맥 보기 (${result.chapter}장)`}
-          </button>
+        {/* Toggles */}
+        <div className="flex gap-3 mt-1">
+          {result.en && (
+            <button
+              onClick={() => setShowEn(!showEn)}
+              className="flex items-center gap-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showEn ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              NIV
+            </button>
+          )}
+          {result.context && result.context.length > 1 && (
+            <button
+              onClick={() => setShowContext(!showContext)}
+              className="flex items-center gap-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showContext ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              문맥
+            </button>
+          )}
+        </div>
 
-          {showContext && (
-            <div className="context-area">
+        {/* English */}
+        {showEn && result.en && (
+          <>
+            <Separator className="my-3 bg-border/50" />
+            <p className="text-sm text-muted-foreground italic leading-relaxed">
+              &ldquo;{result.en}&rdquo;
+            </p>
+          </>
+        )}
+
+        {/* Context */}
+        {showContext && result.context && (
+          <>
+            <Separator className="my-3 bg-border/50" />
+            <div className="space-y-1.5 pl-3 border-l-2 border-border">
               {result.context.map((ctx) => (
                 <p
                   key={ctx.key}
-                  className={`context-verse ${ctx.verse === result.verse ? "highlighted" : ""}`}
+                  className={`text-sm leading-relaxed ${ctx.verse === result.verse
+                      ? "text-foreground/90 font-medium"
+                      : "text-muted-foreground"
+                    }`}
                 >
-                  <span className="context-verse-num">{ctx.verse}</span>
+                  <span className="text-primary/60 font-semibold mr-2 text-xs">
+                    {ctx.verse}
+                  </span>
                   {ctx.ko}
                 </p>
               ))}
             </div>
-          )}
-        </>
-      )}
-    </article>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-// ──────────────────────────────────────────────
-// Main Page
-// ──────────────────────────────────────────────
 export default function Home() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usedDense, setUsedDense] = useState(false);
-  const [usedGemini, setUsedGemini] = useState(false);
-  const [expandedQuery, setExpandedQuery] = useState<string | null>(null);
-  const [emotions, setEmotions] = useState<string[]>([]);
+  const [meta, setMeta] = useState<{
+    usedDense: boolean;
+    usedGemini: boolean;
+    expandedQuery: string | null;
+    emotions: string[];
+  } | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const search = useCallback(async (q: string) => {
     const trimmed = q.trim();
     if (!trimmed) return;
-
     setLoading(true);
     setError(null);
     setResults(null);
-
+    setMeta(null);
     try {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: trimmed }),
       });
-
       const data: SearchResponse = await res.json();
-
       if (!res.ok || data.error) {
         setError(data.error ?? "검색 중 오류가 발생했습니다.");
         return;
       }
-
       setResults(data.results);
-      setUsedDense(data.usedDense);
-      setUsedGemini(data.usedGemini ?? false);
-      setExpandedQuery(data.expanded_query ?? null);
-      setEmotions(data.emotions ?? []);
+      setMeta({
+        usedDense: data.usedDense,
+        usedGemini: data.usedGemini ?? false,
+        expandedQuery: data.expanded_query ?? null,
+        emotions: data.emotions ?? [],
+      });
     } catch {
       setError("서버에 연결할 수 없습니다.");
     } finally {
@@ -213,79 +215,69 @@ export default function Home() {
     }
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setActiveTag(null);
-    setExpandedQuery(null);
-    setEmotions([]);
     search(query);
   };
 
   const handleTagClick = (tag: (typeof TAGS)[0]) => {
     setActiveTag(tag.label);
     setQuery(tag.query);
-    setExpandedQuery(null);
-    setEmotions([]);
     search(tag.query);
   };
 
   return (
-    <>
-      {/* Stars background */}
-      <div className="stars-bg" aria-hidden="true" />
+    <div className="min-h-dvh bg-background">
+      <div className="mx-auto max-w-2xl px-4 py-12 pb-24">
 
-      <main className="page">
         {/* Header */}
-        <header className="header">
-          <h1 className="header-logo">LOGOS</h1>
-          <p className="header-subtitle">성경구절 시맨틱 검색</p>
-          <div className="header-divider" />
+        <header className="text-center mb-10 animate-fade-up">
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <BookOpen className="text-primary" size={22} />
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              말씀곳간
+            </h1>
+          </div>
+          <p className="text-sm text-muted-foreground tracking-widest">
+            성경구절 의미 검색
+          </p>
+          <Separator className="mt-5 bg-border/50" />
         </header>
 
         {/* Search */}
-        <div className="search-container">
-          <form onSubmit={handleSubmit} className="search-box" role="search">
-            <input
+        <div className="animate-fade-up" style={{ animationDelay: "80ms" }}>
+          <form onSubmit={handleSubmit} className="flex gap-2 mb-4">
+            <Input
               ref={inputRef}
-              id="search-input"
-              className="search-input"
-              type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="감정이나 상황을 자유롭게 입력하세요 — 힘들어요, 감사해요, 두려워요..."
+              placeholder="감정이나 상황을 자유롭게 입력하세요..."
+              className="bg-input border-border focus-visible:ring-primary/40 h-11 text-[0.95rem]"
               autoComplete="off"
-              aria-label="성경 구절 검색"
             />
-            <button
+            <Button
               type="submit"
-              id="search-btn"
-              className="search-btn"
               disabled={loading || !query.trim()}
-              aria-label="검색"
+              className="h-11 px-5 bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
             >
-              {loading ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round"/>
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-                </svg>
-              )}
-            </button>
+              {loading
+                ? <Loader2 size={16} className="animate-spin" />
+                : <Search size={16} />
+              }
+            </Button>
           </form>
 
           {/* Tag chips */}
-          <p className="tags-label">주제별 빠른 검색</p>
-          <div className="tags-row" role="list">
+          <div className="flex flex-wrap gap-1.5 mb-8">
             {TAGS.map((tag) => (
               <button
                 key={tag.label}
-                className={`tag-chip ${activeTag === tag.label ? "active" : ""}`}
                 onClick={() => handleTagClick(tag)}
-                role="listitem"
-                aria-pressed={activeTag === tag.label}
+                className={`text-[0.78rem] px-3 py-1.5 rounded-full border transition-all duration-200 ${activeTag === tag.label
+                    ? "border-primary/50 bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground hover:bg-accent"
+                  }`}
               >
                 {tag.label}
               </button>
@@ -295,97 +287,76 @@ export default function Home() {
 
         {/* Loading */}
         {loading && (
-          <div className="loading-container" role="status" aria-live="polite">
-            <div className="loading-spinner" aria-hidden="true" />
-            <p className="loading-text">말씀을 찾고 있습니다...</p>
+          <div className="flex flex-col items-center gap-3 py-20 text-muted-foreground animate-fade-in">
+            <Loader2 size={28} className="animate-spin text-primary/60" />
+            <p className="text-sm">말씀을 찾고 있습니다...</p>
           </div>
         )}
 
         {/* Error */}
         {error && !loading && (
-          <div className="state-box" role="alert">
-            <div className="state-icon">⚠️</div>
-            <p className="state-title">{error}</p>
-            <p className="state-desc">잠시 후 다시 시도해주세요.</p>
+          <div className="text-center py-16 animate-fade-in">
+            <p className="text-muted-foreground text-sm">{error}</p>
           </div>
         )}
 
         {/* Results */}
         {results && !loading && !error && (
-          <>
+          <div className="animate-fade-in">
             {results.length === 0 ? (
-              <div className="state-box">
-                <div className="state-icon">🔍</div>
-                <p className="state-title">검색 결과가 없습니다</p>
-                <p className="state-desc">다른 단어나 표현으로 검색해보세요.</p>
+              <div className="text-center py-16">
+                <p className="text-muted-foreground text-sm">검색 결과가 없습니다.</p>
               </div>
             ) : (
               <>
-                <p className="results-header">
-                  <span>&ldquo;{query}&rdquo;</span> 관련 구절{" "}
-                  {usedGemini ? "· AI 추천" : usedDense ? "· 의미 기반" : "· 키워드 검색"}
-                </p>
-                {expandedQuery && (
-                  <p style={{
-                    width: "100%",
-                    maxWidth: "720px",
-                    marginBottom: "12px",
-                    fontSize: "0.75rem",
-                    color: "var(--text-muted)",
-                    lineHeight: 1.6,
-                  }}>
-                    <span style={{ color: "var(--gold)", marginRight: "6px" }}>✦ 성경 언어로 변환:</span>
-                    {expandedQuery}
+                {/* Meta info */}
+                <div className="mb-4 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="text-foreground/70 font-medium">&ldquo;{query}&rdquo;</span>
+                    {" "}— {meta?.usedGemini ? "AI 추천" : meta?.usedDense ? "의미 기반 검색" : "키워드 검색"}
                   </p>
-                )}
-                {emotions.length > 0 && (
-                  <div style={{
-                    width: "100%",
-                    maxWidth: "720px",
-                    display: "flex",
-                    gap: "6px",
-                    flexWrap: "wrap",
-                    marginBottom: "20px",
-                  }}>
-                    {emotions.map(e => (
-                      <span key={e} style={{
-                        fontSize: "0.72rem",
-                        padding: "3px 10px",
-                        borderRadius: "100px",
-                        background: "rgba(139,92,246,0.12)",
-                        border: "1px solid rgba(139,92,246,0.25)",
-                        color: "#a78bfa",
-                      }}>{e}</span>
-                    ))}
-                  </div>
-                )}
-                <ul className="results-list" aria-label="검색 결과">
+                  {meta?.emotions && meta.emotions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {meta.emotions.map((e) => (
+                        <span
+                          key={e}
+                          className="text-[0.7rem] px-2.5 py-0.5 rounded-full bg-violet-400/8 border border-violet-400/20 text-violet-400/80"
+                        >
+                          {e}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
                   {results.map((result, i) => (
-                    <li key={result.key} style={{ listStyle: "none" }}>
-                      <VerseCard result={result} delay={i * 80} />
-                    </li>
+                    <VerseCard key={result.key} result={result} index={i} />
                   ))}
-                </ul>
+                </div>
               </>
             )}
-          </>
+          </div>
         )}
 
-        {/* Welcome screen */}
+        {/* Welcome */}
         {!results && !loading && !error && (
-          <div className="welcome" aria-label="환영 메시지">
-            <p className="welcome-verse">
+          <div className="text-center py-16 animate-fade-in space-y-4">
+            <p className="font-serif text-lg text-foreground/60 italic leading-relaxed">
               &ldquo;너희가 전심으로 나를 찾고 찾으면 나를 만나리라&rdquo;
             </p>
-            <p className="welcome-ref">— 예레미야 29:13</p>
-            <div className="welcome-divider" />
-            <p className="welcome-hint">
-              마음의 상태, 감정, 기도 제목을 자유롭게 입력하세요.<br />
+            <p className="text-xs text-primary/60 tracking-widest uppercase">
+              예레미야 29:13
+            </p>
+            <Separator className="w-12 mx-auto bg-border/40 mt-6" />
+            <p className="text-sm text-muted-foreground leading-relaxed mt-4">
+              마음의 상태, 감정, 기도 제목을 자유롭게 입력하세요.
+              <br />
               AI가 성경 전체에서 가장 관련 있는 말씀을 찾아드립니다.
             </p>
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </div>
   );
 }
