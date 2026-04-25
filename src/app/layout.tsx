@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { AuthBadge } from "@/components/AuthBadge";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -20,7 +21,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <div className="fixed top-3 right-4 z-20">
+          <AuthBadge />
+        </div>
+        {children}
+      </body>
     </html>
   );
 }
