@@ -42,6 +42,8 @@ yarn-error.log*
 /public/data/*.bin  # 만약 50MB가 넘으면 제외해야 할 수도 있음
 !/public/data/*.json
 !/public/data/*.bin
+# 단락 사전생성 체크포인트 (런타임 산출물 — commit 제외)
+/public/data/passage_progress.json
 
 # vercel
 .vercel
