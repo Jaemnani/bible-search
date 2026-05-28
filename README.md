@@ -1,5 +1,25 @@
 # 📖 Bible Search
 
+## Tagline-ko
+감정·주제 기반 성경 구절 시맨틱 검색. "외로워요", "두려워요" 같은 일상적 감정으로 관련 성경 말씀을 추천받습니다.
+
+## Tagline-en
+Emotion-aware semantic search for Bible verses. Find scripture by everyday feelings like "I feel lonely" or "I'm afraid."
+
+## Tagline-ja
+感情・テーマに基づく聖書節セマンティック検索。「寂しい」「怖い」など日常の感情からみことばを提案します。
+
+## 프로젝트 개요
+BM25(희소) + Gemini 임베딩(밀집) 하이브리드 검색으로 성경 30,944개 구절에서 사용자 감정/주제에 어울리는 본문을 찾아 Gemini 2.5 Flash Lite 로 리랭킹합니다. 정적 벡터 파일 + Vercel 서버리스로 호스팅 비용 0 에 가깝게 운영합니다.
+
+## Summary-en
+Hybrid BM25 + Gemini embeddings search across 30,944 verses, reranked by Gemini 2.5 Flash Lite. Static vector files on Vercel keep hosting cost near zero.
+
+## Summary-ja
+30,944節を対象に BM25 と Gemini エンベディングのハイブリッド検索を行い、Gemini 2.5 Flash Lite で再ランキング。静的ベクトルファイル + Vercel でホスティングコストをほぼゼロに抑えています。
+
+---
+
 감정·주제 기반 성경 구절 시맨틱 검색 서비스.
 "외로워요", "두려워요" 같은 일상적인 감정 표현으로 관련 성경 말씀을 추천받을 수 있습니다.
 
