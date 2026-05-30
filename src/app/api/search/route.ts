@@ -1,20 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-
-interface BibleVerse {
-  id: number;
-  key: string;
-  book_en: string;
-  book_ko: string;
-  chapter: number;
-  verse: number;
-  testament: string;
-  genre: string;
-  ko: string;
-  en: string;
-  embed_text: string;
-}
+import { loadBible, loadBibleMap, type BibleVerse } from "@/lib/passages";
 
 interface SearchResult extends BibleVerse {
   score: number;
@@ -29,21 +16,18 @@ interface QueryExpansion {
   search_query: string;
 }
 
-// --- In-memory cache ---
-let bibleCache: BibleVerse[] | null = null;
-let denseCache: Float32Array | null = null;
-let denseMeta: { vmin: number; scale: number; dim: number } | null = null;
-
-function loadBible(): BibleVerse[] {
-  if (bibleCache) return bibleCache;
-  const filePath = path.join(process.cwd(), "public", "data", "bible.json");
-  if (!fs.existsSync(filePath)) return [];
-  bibleCache = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  return bibleCache!;
+interface DenseData {
+  vecs: Float32Array;
+  dim: number;
+  total: number;
+  norms: Float32Array;
 }
 
-function loadDenseEmbeddings(): { vecs: Float32Array; dim: number } | null {
-  if (denseCache && denseMeta) return { vecs: denseCache, dim: denseMeta.dim };
+// --- In-memory cache ---
+let denseCache: DenseData | null = null;
+
+function loadDenseEmbeddings(): DenseData | null {
+  if (denseCache) return denseCache;
   const filePath = path.join(process.cwd(), "public", "data", "embeddings_dense.bin");
   if (!fs.existsSync(filePath)) return null;
 
@@ -54,14 +38,27 @@ function loadDenseEmbeddings(): { vecs: Float32Array; dim: number } | null {
   const vmin  = view.getFloat64(8, true);
   const scale = view.getFloat64(16, true);
 
-  const quantized = new Uint8Array(buf.buffer, buf.byteOffset + 24);
+  // 명시적 길이 지정 — 풀 버퍼의 잉여 바이트를 읽지 않도록.
+  const quantized = new Uint8Array(buf.buffer, buf.byteOffset + 24, total * dim);
   const floats = new Float32Array(total * dim);
   for (let i = 0; i < quantized.length; i++) {
     floats[i] = quantized[i] * scale + vmin;
   }
-  denseMeta = { vmin, scale, dim };
-  denseCache = floats;
-  return { vecs: floats, dim };
+
+  // verse 벡터 노름 사전계산 — 매 쿼리마다 재계산하지 않도록 1회만.
+  const norms = new Float32Array(total);
+  for (let v = 0; v < total; v++) {
+    const off = v * dim;
+    let s = 0;
+    for (let i = 0; i < dim; i++) {
+      const x = floats[off + i];
+      s += x * x;
+    }
+    norms[v] = Math.sqrt(s);
+  }
+
+  denseCache = { vecs: floats, dim, total, norms };
+  return denseCache;
 }
 
 // --- Stage 1: Gemini Query Expansion ---
@@ -170,9 +167,12 @@ ${list}
     const jsonStr = text.replace(/```json\n?|\n?```/g, "").trim();
     const parsed = JSON.parse(jsonStr);
     const reranked: SearchResult[] = [];
+    const seen = new Set<number>();
     for (const item of parsed.results ?? []) {
       const idx = (item.index as number) - 1;
-      if (idx >= 0 && idx < candidates.length) {
+      // 모델이 같은 index 를 중복 반환하면 동일 key 가 두 번 들어가 React key 충돌 → dedupe.
+      if (idx >= 0 && idx < candidates.length && !seen.has(idx)) {
+        seen.add(idx);
         reranked.push({ ...candidates[idx], rerank_reason: item.reason });
       }
     }
@@ -183,14 +183,28 @@ ${list}
 }
 
 // --- Cosine Similarity ---
-function cosineSimilarity(a: number[], b: Float32Array, offset: number, dim: number): number {
-  let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < dim; i++) {
-    dot   += a[i] * b[offset + i];
-    normA += a[i] * a[i];
-    normB += b[offset + i] * b[offset + i];
+// aNorm(쿼리 노름)은 루프 밖에서 1회 계산해 전달. bNorm(verse 노름)이 주어지면
+// 사전계산된 값을 쓰고, 없으면(useDim < dim 등) 내부에서 계산한다.
+function cosineSimilarity(
+  a: number[],
+  b: Float32Array,
+  offset: number,
+  dim: number,
+  aNorm: number,
+  bNorm?: number,
+): number {
+  let dot = 0;
+  if (bNorm !== undefined) {
+    for (let i = 0; i < dim; i++) dot += a[i] * b[offset + i];
+    const denom = aNorm * bNorm;
+    return denom < 1e-9 ? 0 : dot / denom;
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  let nb = 0;
+  for (let i = 0; i < dim; i++) {
+    dot += a[i] * b[offset + i];
+    nb  += b[offset + i] * b[offset + i];
+  }
+  const denom = aNorm * Math.sqrt(nb);
   return denom < 1e-9 ? 0 : dot / denom;
 }
 
@@ -247,7 +261,7 @@ function buildQueryTokens(query: string): Record<string, number> {
 function hybridSearch(
   bible: BibleVerse[],
   queryEmbedding: number[] | null,
-  denseData: { vecs: Float32Array; dim: number } | null,
+  denseData: DenseData | null,
   searchQuery: string,
   topK: number
 ): SearchResult[] {
@@ -259,9 +273,27 @@ function hybridSearch(
   // Dense
   if (queryEmbedding && denseData) {
     const useDim = Math.min(queryEmbedding.length, denseData.dim);
+    // 쿼리 노름은 모든 verse에 동일 — 루프 밖에서 1회만 계산.
+    let qNorm = 0;
+    for (let i = 0; i < useDim; i++) qNorm += queryEmbedding[i] * queryEmbedding[i];
+    qNorm = Math.sqrt(qNorm);
+    // 사전계산된 verse 노름은 full dim 기준이므로 useDim === dim 일 때만 사용.
+    const usePrecomputed = useDim === denseData.dim;
+    // verse 개수와 dense 벡터 개수가 어긋나도 배열 밖을 읽지 않도록 가드.
+    const count = Math.min(N, denseData.total);
     const scores: [number, number][] = [];
-    for (let i = 0; i < N; i++) {
-      scores.push([i, cosineSimilarity(queryEmbedding, denseData.vecs, i * denseData.dim, useDim)]);
+    for (let i = 0; i < count; i++) {
+      scores.push([
+        i,
+        cosineSimilarity(
+          queryEmbedding,
+          denseData.vecs,
+          i * denseData.dim,
+          useDim,
+          qNorm,
+          usePrecomputed ? denseData.norms[i] : undefined,
+        ),
+      ]);
     }
     scores.sort((a, b) => b[1] - a[1]);
     scores.slice(0, 300).forEach(([idx], rank) => denseRanks.set(idx, rank + 1));
@@ -306,13 +338,14 @@ function hybridSearch(
 }
 
 // --- Context Expansion (+-2 verses) ---
-function expandContext(verse: BibleVerse, bible: BibleVerse[]): BibleVerse[] {
+// verse.key 는 "book_en:chapter:verse" 형식 → 맵으로 O(1) 조회.
+function expandContext(verse: BibleVerse, bibleMap: Map<string, BibleVerse>): BibleVerse[] {
   const { book_en, chapter, verse: v } = verse;
   const result: BibleVerse[] = [];
   for (let offset = -2; offset <= 2; offset++) {
     const tv = v + offset;
     if (tv < 1) continue;
-    const found = bible.find(b => b.book_en === book_en && b.chapter === chapter && b.verse === tv);
+    const found = bibleMap.get(`${book_en}:${chapter}:${tv}`);
     if (found) result.push(found);
   }
   return result;
@@ -331,6 +364,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "검색어가 너무 깁니다." }, { status: 400 });
     }
 
+    // 콜드스타트 시 데이터 로드(파싱·역양자화)도 7초 예산에 포함되도록 먼저 측정 시작.
+    const requestStart = Date.now();
+
     const bible = loadBible();
     if (bible.length === 0) {
       return NextResponse.json(
@@ -339,7 +375,6 @@ export async function POST(req: NextRequest) {
       );
     }
     const denseData = loadDenseEmbeddings();
-    const requestStart = Date.now();
 
     // Stage 1+2: 쿼리 확장 + 임베딩 병렬 실행
     const [expansion, queryEmbedding] = await Promise.all([
@@ -357,9 +392,10 @@ export async function POST(req: NextRequest) {
       ? await rerankWithGemini(userQuery, expansion, candidates)
       : candidates.slice(0, 5);
 
+    const bibleMap = loadBibleMap();
     const withContext = reranked.map(r => ({
       ...r,
-      context: expandContext(r, bible),
+      context: expandContext(r, bibleMap),
     }));
 
     return NextResponse.json({

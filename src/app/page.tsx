@@ -190,6 +190,7 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [authenticated, setAuthenticated] = useState(false);
+  const [authLoaded, setAuthLoaded] = useState(false);
   const [random, setRandom] = useState<RandomPassageResponse | null>(null);
   const [randomLoading, setRandomLoading] = useState(false);
   const [randomError, setRandomError] = useState<string | null>(null);
@@ -198,6 +199,7 @@ export default function Home() {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
       setAuthenticated(!!data.user);
+      setAuthLoaded(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setAuthenticated(!!session?.user);
@@ -336,7 +338,7 @@ export default function Home() {
           <div className="flex items-center gap-2 mb-8">
             <button
               onClick={fetchRandom}
-              disabled={randomLoading}
+              disabled={randomLoading || !authLoaded}
               className="inline-flex items-center gap-1.5 text-[0.78rem] px-3 py-1.5 rounded-full border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 transition-all duration-200 disabled:opacity-50"
             >
               {randomLoading ? (

@@ -50,15 +50,17 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       passage_id,
     }));
-    const { error } = await supabase
+    // ignoreDuplicates 로 충돌 행은 건너뛰므로, .select() 가 돌려주는 실제 삽입 행만 카운트.
+    const { data, error } = await supabase
       .from("used_passages")
-      .upsert(rows, { onConflict: "user_id,passage_id", ignoreDuplicates: true });
+      .upsert(rows, { onConflict: "user_id,passage_id", ignoreDuplicates: true })
+      .select("passage_id");
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ inserted: ids.length });
+    return NextResponse.json({ inserted: data?.length ?? 0 });
   } catch (err) {
     console.error("/api/random/migrate error:", err);
     return NextResponse.json(
