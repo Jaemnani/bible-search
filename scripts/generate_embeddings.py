@@ -157,6 +157,28 @@ def save_dense_bin(q: np.ndarray, vmin: float, scale: float,
     print(f"  💾 Dense 저장: {path} ({mb:.1f}MB)")
 
 
+def save_f32_sidecar(arr: np.ndarray, path: str):
+    """float32 원본 사이드카: [total:4B][dim:4B][float32 data].
+    양자화 방식 재실험(차원별/fp16/퍼센타일) 시 Gemini 재호출 없이 여기서 재생성."""
+    n, dim = arr.shape
+    with open(path, "wb") as f:
+        f.write(struct.pack("<I", int(n)))
+        f.write(struct.pack("<I", int(dim)))
+        f.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
+
+
+def load_f32_sidecar(path: str):
+    """반환: (rows, dim) float32 또는 None (무손실 resume·재양자화용)"""
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        n = struct.unpack("<I", f.read(4))[0]
+        dim = struct.unpack("<I", f.read(4))[0]
+        data = np.frombuffer(f.read(), dtype=np.float32)
+    rows = len(data) // dim if dim else 0
+    return data[: rows * dim].reshape(rows, dim) if rows else None
+
+
 def build_verse_inputs(bible: list, input_mode: str) -> list:
     """
     verse 임베딩 입력 텍스트.
@@ -232,6 +254,10 @@ def main():
     total      = len(texts)
     dense_path = out_dir / out_name
     prog_path  = out_dir / prog_name
+    # float32 사이드카(배포 번들 밖, gitignore) — 양자화 재실험·무손실 resume용
+    f32_dir    = root / "embeddings_src"
+    f32_dir.mkdir(exist_ok=True)
+    f32_path   = f32_dir / (out_name + ".f32")
     print(f"  대상: {args.target}  |  입력모드: {args.input_mode if args.target=='verse' else '-'}  |  출력: {out_name}")
 
     tier_label = "유료 (과금 활성화)" if PAID_TIER else "무료 (100 RPD)"
@@ -250,19 +276,26 @@ def main():
     if prog_path.exists():
         with open(prog_path) as f:
             claimed = json.load(f).get("processed", 0)
-        if dense_path.exists() and claimed > 0:
+        # 1순위: 무손실 f32 사이드카에서 복원
+        f32_prev = load_f32_sidecar(str(f32_path)) if claimed > 0 else None
+        if f32_prev is not None and f32_prev.shape[1] == DENSE_DIM:
+            all_dense = list(f32_prev)
+            start_idx = f32_prev.shape[0]
+            print(f"⏩ f32 사이드카 무손실 복원: {start_idx:,}/{total} 재개 (기록상 {claimed})")
+        elif dense_path.exists() and claimed > 0:
+            # 2순위: int8 .bin (역양자화 손실) — 실제 바이트 기준 행 수로 복원
             with open(dense_path, "rb") as f:
                 _n      = struct.unpack("<I", f.read(4))[0]
                 d_saved = struct.unpack("<I", f.read(4))[0]
                 vm      = struct.unpack("<d", f.read(8))[0]
                 sc      = struct.unpack("<d", f.read(8))[0]
                 raw     = f.read()
-            rows = len(raw) // d_saved if d_saved else 0   # 실제 바이트 기준 행 수
+            rows = len(raw) // d_saved if d_saved else 0
             if rows > 0 and d_saved == DENSE_DIM:
                 q_prev = np.frombuffer(raw[: rows * d_saved], dtype=np.uint8).reshape(rows, d_saved)
                 all_dense = list(q_prev.astype(np.float32) * sc + vm)
                 start_idx = rows                            # 복원된 실제 개수부터 이어서 (구멍 방지)
-                print(f"⏩ 체크포인트 복원: {rows:,}/{total} 재개 (기록상 {claimed})")
+                print(f"⏩ int8 체크포인트 복원: {rows:,}/{total} 재개 (기록상 {claimed})")
         if not all_dense:
             print("⚠ 체크포인트 복원 실패(출력 파일 없음/불일치) — 처음부터 재생성합니다.")
             start_idx = 0
@@ -285,6 +318,7 @@ def main():
                 arr = np.array(all_dense, dtype=np.float32)
                 q, vmin, scale = quantize_to_int8(arr)
                 save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+                save_f32_sidecar(arr, str(f32_path))
                 with open(prog_path, "w") as f:
                     json.dump({"processed": i}, f)
             print(f"  ⛔ 종료: {e}")
@@ -303,6 +337,7 @@ def main():
             arr = np.array(all_dense, dtype=np.float32)
             q, vmin, scale = quantize_to_int8(arr)
             save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+            save_f32_sidecar(arr, str(f32_path))
             with open(prog_path, "w") as f:
                 json.dump({"processed": end_idx}, f)
 
@@ -313,6 +348,7 @@ def main():
     arr = np.array(all_dense, dtype=np.float32)
     q, vmin, scale = quantize_to_int8(arr)
     save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+    save_f32_sidecar(arr, str(f32_path))
     if len(all_dense) != total:
         print(f"  ⚠ 경고: 생성 {len(all_dense):,} ≠ 전체 {total:,} — 불완전(프로그파일 유지, 재실행 시 이어서)")
     else:

@@ -55,3 +55,6 @@ next-env.d.ts
 # python venv (numpy for data pipeline)
 .venv/
 __pycache__/
+
+# float32 임베딩 사이드카 (양자화 재실험용, 배포 제외)
+embeddings_src/

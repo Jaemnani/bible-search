@@ -32,6 +32,7 @@ interface PassageCandidate {
 // --- In-memory caches (파일별 dense + 단락 검색 텍스트) ---
 const denseCaches = new Map<string, DenseData | null>();
 let passageTextCache: string[] | null = null;
+let passageSparseCache: { df: Map<string, number>; dl: Float64Array; avgdl: number } | null = null;
 
 // verse / passage 임베딩 공통 로더. 포맷:
 //   [total:u32][dim:u32][vmin:f64][scale:f64] + total*dim uint8
@@ -90,6 +91,40 @@ function loadPassageTexts(): string[] {
   return passageTextCache;
 }
 
+// 단락 sparse 텀: 공백 단어(정확일치) + 단어 내부 char trigram(교착어 부분매칭).
+// bigram은 과도하게 흔해(노이즈) trigram 사용. 단어<3자는 그대로.
+function sparseTermsOf(text: string): string[] {
+  const out: string[] = [];
+  for (const w of text.split(/\s+/)) {
+    if (!w) continue;
+    out.push(w);
+    for (let i = 0; i + 3 <= w.length; i++) out.push(w.slice(i, i + 3));
+  }
+  return out;
+}
+
+// BM25-lite 인덱스: 텀별 df(흔한 조각 IDF로 제거) + 단락 길이(긴 단락 보정). 로드 시 1회.
+function loadPassageSparseIndex() {
+  if (passageSparseCache) return passageSparseCache;
+  const texts = loadPassageTexts();
+  const df = new Map<string, number>();
+  const dl = new Float64Array(texts.length);
+  let total = 0;
+  for (let i = 0; i < texts.length; i++) {
+    const terms = sparseTermsOf(texts[i]);
+    dl[i] = terms.length;
+    total += terms.length;
+    const seen = new Set<string>();
+    for (const t of terms) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+      df.set(t, (df.get(t) ?? 0) + 1);
+    }
+  }
+  passageSparseCache = { df, dl, avgdl: total / Math.max(texts.length, 1) };
+  return passageSparseCache;
+}
+
 // --- Stage 1: Gemini Query Expansion ---
 async function expandQueryWithGemini(userQuery: string): Promise<QueryExpansion | null> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -132,7 +167,12 @@ search_query 작성 규칙:
         signal: AbortSignal.timeout(4000),
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const credit = res.status === 429 && /RESOURCE_EXHAUSTED|credits|quota/i.test(body);
+      console.error(`[Expand] Gemini 확장 실패: ${res.status}${credit ? " (크레딧/할당량 소진)" : ""} - ${body.slice(0, 160)}`);
+      return null;
+    }
     const data = await res.json();
     const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     const jsonStr = text.replace(/```json\n?|\n?```/g, "").trim();
@@ -261,7 +301,8 @@ async function getQueryEmbedding(query: string, dim: number): Promise<number[] |
     );
     if (!res.ok) {
       const errorText = await res.text();
-      console.error(`[Dense] Gemini embedding failed: ${res.status} - ${errorText}`);
+      const credit = res.status === 429 && /RESOURCE_EXHAUSTED|credits|quota/i.test(errorText);
+      console.error(`[Dense] Gemini embedding 실패: ${res.status}${credit ? " (크레딧/할당량 소진)" : ""} - ${errorText.slice(0, 160)}`);
       return null;
     }
     const data = await res.json();
@@ -272,17 +313,19 @@ async function getQueryEmbedding(query: string, dim: number): Promise<number[] |
   }
 }
 
-// --- Stage 2b: Sparse Query Tokens (text TF, word + bigram) ---
-function buildQueryTokens(query: string): Record<string, number> {
-  const tokens: Record<string, number> = {};
+// --- Stage 2b: Sparse Query Terms (word 1.0 + char trigram 0.7) ---
+// 정확 단어는 강한 신호, trigram은 부분매칭 recall. 흔함/희소는 IDF가 처리.
+function buildSparseQuery(query: string): Map<string, number> {
+  const q = new Map<string, number>();
+  const bump = (t: string, w: number) => {
+    const cur = q.get(t) ?? 0;
+    if (w > cur) q.set(t, w);
+  };
   for (const word of query.trim().split(/\s+/).filter(Boolean)) {
-    tokens[word] = (tokens[word] || 0) + 1;
-    for (let i = 0; i < word.length - 1; i++) {
-      const bg = word.slice(i, i + 2);
-      tokens[bg] = (tokens[bg] || 0) + 0.5;
-    }
+    bump(word, 1.0);
+    for (let i = 0; i + 3 <= word.length; i++) bump(word.slice(i, i + 3), 0.7);
   }
-  return tokens;
+  return q;
 }
 
 // --- Stage 2: 단락 하이브리드 검색 (Dense + Sparse + 태그 부스트, RRF) ---
@@ -326,16 +369,28 @@ function passageHybridSearch(
     scores.slice(0, 200).forEach(([idx], rank) => denseRanks.set(idx, rank + 1));
   }
 
-  // Sparse: 단락 결합 텍스트 TF
+  // Sparse: BM25-lite (IDF 가중 + 길이 정규화) — 흔한 char 조각의 노이즈 제거
   const texts = loadPassageTexts();
-  const qTokens = buildQueryTokens(searchQuery);
-  const terms = Object.keys(qTokens);
+  const { df, dl, avgdl } = loadPassageSparseIndex();
+  const qTerms = buildSparseQuery(searchQuery);
+  const B = 0.5; // 길이 정규화 강도
+  // 텀별 IDF 사전계산 (BM25 idf): 흔한 조각(df 큼) → ~0
+  const idf = new Map<string, number>();
+  for (const t of qTerms.keys()) {
+    const d = df.get(t) ?? 0;
+    idf.set(t, Math.log(1 + (N - d + 0.5) / (d + 0.5)));
+  }
   const sparseScores: [number, number][] = [];
   for (let i = 0; i < N; i++) {
     const txt = texts[i] ?? "";
     let s = 0;
-    for (const t of terms) if (txt.includes(t)) s += qTokens[t];
-    if (s > 0) sparseScores.push([i, s]);
+    for (const [t, qw] of qTerms) {
+      if (txt.includes(t)) s += qw * (idf.get(t) ?? 0);
+    }
+    if (s > 0) {
+      const norm = 1 - B + B * (dl[i] / avgdl); // 긴 단락이 흔한 조각으로 고득점하는 것 보정
+      sparseScores.push([i, s / norm]);
+    }
   }
   sparseScores.sort((a, b) => b[1] - a[1]);
   sparseScores.slice(0, 200).forEach(([idx], rank) => sparseRanks.set(idx, rank + 1));
@@ -448,6 +503,23 @@ export async function POST(req: NextRequest) {
     ]);
     const searchQuery = expansion?.search_query ?? userQuery;
 
+    // 열화(degraded) 진단 — 검색 로직은 변경 없음, 상태만 파생/노출.
+    // dense(뜻 검색)가 핵심이므로 dense 미사용 = 열화로 간주.
+    const usedDense = !!queryEmbedding && !!passageDense;
+    const usedGemini = !!expansion;
+    let degradedReason: string | null = null;
+    if (!queryEmbedding && !expansion) degradedReason = "no_dense_no_expansion";
+    else if (!queryEmbedding) degradedReason = "no_dense";
+    else if (!expansion) degradedReason = "no_expansion";
+    const degraded = !usedDense;
+    if (degraded && !degradedReason) degradedReason = "no_index"; // 임베딩 인덱스 부재
+    if (degraded) {
+      console.warn(
+        `[Search] 열화 폴백: reason=${degradedReason} (dense=${usedDense} expansion=${usedGemini}) ` +
+        `query=${JSON.stringify(userQuery.slice(0, 50))}`
+      );
+    }
+
     // Stage 2: 단락 하이브리드 검색 → 상위 30 후보
     const ranked = passageHybridSearch(
       passages,
@@ -509,8 +581,10 @@ export async function POST(req: NextRequest) {
       emotions: expansion?.emotions ?? [],
       biblical_keywords: expansion?.biblical_keywords ?? [],
       total: passages.length,
-      usedDense: !!queryEmbedding && !!passageDense,
-      usedGemini: !!expansion,
+      usedDense,
+      usedGemini,
+      degraded,
+      degradedReason,
       results,
     });
   } catch (err) {

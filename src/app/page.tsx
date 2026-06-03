@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Search, Loader2, BookOpen, Shuffle } from "lucide-react";
+import { Search, Loader2, BookOpen, Shuffle, Info } from "lucide-react";
 import {
   getUsedPassagesStore,
   type RandomPassageResponse,
@@ -21,6 +21,8 @@ interface SearchResponse {
   total: number;
   usedDense: boolean;
   usedGemini: boolean;
+  degraded?: boolean;
+  degradedReason?: string | null;
   results: SearchPassage[];
   error?: string;
 }
@@ -46,6 +48,7 @@ export default function Home() {
   const [meta, setMeta] = useState<{
     usedDense: boolean;
     usedGemini: boolean;
+    degraded: boolean;
     expandedQuery: string | null;
     emotions: string[];
   } | null>(null);
@@ -122,6 +125,7 @@ export default function Home() {
       setMeta({
         usedDense: data.usedDense,
         usedGemini: data.usedGemini ?? false,
+        degraded: data.degraded ?? false,
         expandedQuery: data.expanded_query ?? null,
         emotions: data.emotions ?? [],
       });
@@ -282,6 +286,16 @@ export default function Home() {
               </div>
             ) : (
               <>
+                {/* 열화모드 안내 (비차단) — 정밀 검색 제한 시에만 */}
+                {meta?.degraded && (
+                  <div className="mb-4 flex items-start gap-2 text-[0.82rem] text-primary bg-empathy/8 border border-empathy/25 rounded-lg px-4 py-3">
+                    <Info size={15} className="mt-0.5 shrink-0 text-empathy" />
+                    <span className="leading-relaxed">
+                      지금은 정밀 검색이 일시적으로 제한되어 단어 위주로 찾은 결과예요. 추천이 평소만큼 정확하지 않을 수 있어요.
+                    </span>
+                  </div>
+                )}
+
                 {/* Meta info */}
                 <div className="mb-4 space-y-2">
                   <p className="text-xs text-muted-foreground">
