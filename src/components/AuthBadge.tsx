@@ -8,10 +8,17 @@ import { getLocalUsedIds, clearLocalUsedIds } from "@/lib/usedPassagesStore";
 export function AuthBadge() {
   const [email, setEmail] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [configured, setConfigured] = useState(true);
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) {
+      // Supabase 미설정 — 인증 UI 숨김(익명 모드).
+      setConfigured(false);
+      setLoaded(true);
+      return;
+    }
 
     supabase.auth.getUser().then(({ data }) => {
       setEmail(data.user?.email ?? null);
@@ -48,6 +55,9 @@ export function AuthBadge() {
 
   if (!loaded) {
     return <div className="h-6" />;
+  }
+  if (!configured) {
+    return null;
   }
 
   return (

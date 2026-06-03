@@ -4,15 +4,19 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") ?? "/";
+  // 오픈 리다이렉트 방지 — 동일 출처 상대경로만 허용 ("//" 프로토콜-상대 URL 차단).
+  const rawNext = url.searchParams.get("next") ?? "/";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
 
   if (code) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      return NextResponse.redirect(
-        new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, url.origin),
-      );
+    if (supabase) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) {
+        return NextResponse.redirect(
+          new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, url.origin),
+        );
+      }
     }
   }
 

@@ -34,7 +34,7 @@ export function RandomPassageCard({ passage, onToggle }: Props) {
   };
 
   return (
-    <Card className="animate-fade-up border-border/60 bg-card hover:border-primary/30 transition-all duration-300">
+    <Card className="animate-fade-up lift-hover">
       <CardContent className="p-6">
         {/* Range + badges */}
         <div className="flex items-start justify-between gap-3 mb-4">
@@ -46,8 +46,8 @@ export function RandomPassageCard({ passage, onToggle }: Props) {
               variant="outline"
               className={
                 passage.testament === "OT"
-                  ? "text-violet-400 border-violet-400/30 bg-violet-400/5 text-[10px] px-2 py-0"
-                  : "text-sky-400 border-sky-400/30 bg-sky-400/5 text-[10px] px-2 py-0"
+                  ? "text-violet-600 border-violet-200 bg-violet-50 text-[10px] px-2 py-0"
+                  : "text-sky-600 border-sky-200 bg-sky-50 text-[10px] px-2 py-0"
               }
             >
               {passage.testament === "OT" ? "구약" : "신약"}
@@ -55,7 +55,7 @@ export function RandomPassageCard({ passage, onToggle }: Props) {
             {passage.genre && (
               <Badge
                 variant="outline"
-                className="text-primary/70 border-primary/20 bg-primary/5 text-[10px] px-2 py-0"
+                className="text-primary border-primary/20 bg-primary/5 text-[10px] px-2 py-0"
               >
                 {passage.genre}
               </Badge>
@@ -65,7 +65,7 @@ export function RandomPassageCard({ passage, onToggle }: Props) {
 
         {/* Theme title */}
         {passage.theme_title && (
-          <h3 className="text-base font-semibold text-primary/90 mb-3 font-serif">
+          <h3 className="text-lg font-semibold text-foreground mb-3">
             {passage.theme_title}
           </h3>
         )}
@@ -75,7 +75,7 @@ export function RandomPassageCard({ passage, onToggle }: Props) {
           {passage.verses.map((v) => (
             <p
               key={v.verse}
-              className="text-foreground/90 text-[1rem] leading-[1.95] font-serif word-break-keep-all"
+              className="text-foreground/85 text-[1.02rem] leading-[1.9] word-break-keep-all"
             >
               <span className="text-primary/60 font-semibold mr-2 text-xs align-top">
                 {v.verse}
@@ -136,7 +136,7 @@ export function RandomPassageCard({ passage, onToggle }: Props) {
             disabled={pending}
             className={
               used
-                ? "bg-primary/90 text-primary-foreground hover:bg-primary"
+                ? "bg-primary text-primary-foreground hover:bg-primary-dark"
                 : "border-border text-foreground"
             }
           >

@@ -1,6 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import { Barlow } from "next/font/google";
 import "./globals.css";
 import { AuthBadge } from "@/components/AuthBadge";
+
+// DESIGN.md display family — Barlow (Latin), CJK falls back to Pretendard
+const barlow = Barlow({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-barlow",
+  display: "swap",
+});
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -20,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" className={barlow.variable}>
       <body>
         <div className="fixed top-3 right-4 z-20">
           <AuthBadge />

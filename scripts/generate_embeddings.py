@@ -1,27 +1,46 @@
 #!/usr/bin/env python3
 """
-임베딩 생성 스크립트 (Gemini text-embedding-004)
+임베딩 생성 스크립트 (Gemini gemini-embedding-001, 512차원)
 ────────────────────────────────────────────────
-bible.json → embeddings_dense.bin (Int8 양자화, 256차원)
+- verse 임베딩 : bible.json → embeddings_dense.bin (Int8 양자화)
+- passage 임베딩: passages.json → embeddings_passages.bin (동일 포맷)
 
 Vercel 완전 호환: 쿼리 임베딩도 같은 Gemini API 사용 → 벡터 공간 일치
 
 실행:
+  # verse 임베딩 (기본) — 태그 노이즈 제거한 ko+en 클린 입력
   python3 scripts/generate_embeddings.py
+  python3 scripts/generate_embeddings.py --target verse --input-mode clean
+  python3 scripts/generate_embeddings.py --target verse --out embeddings_dense_clean.bin  # 사이드 파일
+
+  # passage 임베딩 (theme_title + core_meaning + 절 ko)
+  python3 scripts/generate_embeddings.py --target passage
 
 필요:
   - .env.local 에 GEMINI_API_KEY=xxx
   - pip install numpy (또는 .venv/bin/pip)
 """
 
+import argparse
 import json
 import os
+import re
 import struct
 import time
 import urllib.request
 import urllib.error
 import numpy as np
 from pathlib import Path
+
+
+def classify_429(err_body: str):
+    """429 분류 → ('daily', 0) | ('rate', retry_delay_seconds).
+    Gemini 의 모든 429 는 RESOURCE_EXHAUSTED 를 담으므로 PerDay/PerMinute 로 구분한다."""
+    nb = err_body.lower().replace(" ", "")
+    if "perday" in nb or "daily" in nb:
+        return ("daily", 0.0)
+    m = re.search(r'"retrydelay"\s*:\s*"(\d+(?:\.\d+)?)s"', err_body.lower())
+    return ("rate", float(m.group(1)) if m else 0.0)
 
 # ─── 티어 선택 ───────────────────────────────────────────
 # True  = 유료(과금 활성화) : RPD 무제한, ~1000 RPM → 약 1분
@@ -51,7 +70,7 @@ def load_api_key(root: Path) -> str:
 def gemini_batch_embed(texts: list, api_key: str, retries: int = 6) -> list:
     """
     Gemini gemini-embedding-001 batchEmbedContents 호출
-    반환: [[256 floats], [256 floats], ...]
+    반환: [[512 floats], [512 floats], ...]
     """
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -81,13 +100,21 @@ def gemini_batch_embed(texts: list, api_key: str, retries: int = 6) -> list:
             return [emb["values"] for emb in data["embeddings"]]
         except urllib.error.HTTPError as e:
             err_body = e.read().decode()
+            if e.code in (400, 401, 403) and (
+                "API_KEY_INVALID" in err_body or "API key" in err_body
+                or "PERMISSION_DENIED" in err_body or "expired" in err_body.lower()
+            ):
+                raise RuntimeError("API 키가 만료되었거나 무효입니다. .env.local 의 GEMINI_API_KEY 를 갱신하세요.")
             if e.code == 429:
-                wait = 15 * (2 ** attempt)  # 15→30→60→120→240→480초
-                is_daily = "RESOURCE_EXHAUSTED" in err_body or "quota" in err_body.lower()
-                if is_daily:
-                    print(f"\n  ⛔ 일일 할당량 초과. 체크포인트 저장 후 종료합니다.")
+                kind, rd = classify_429(err_body)
+                if kind == "daily":
+                    print("\n  ⛔ 일일 할당량 초과. 체크포인트 저장 후 종료합니다.")
                     raise RuntimeError("일일 API 할당량 초과")
-                print(f"  ⏳ 속도 제한 (429) → {wait}초 대기 후 재시도 ({attempt+1}/{retries})...")
+                # 분당(RPM/TPM) 제한 — retryDelay 만큼(없으면 지수백오프) 기다렸다 재시도
+                wait = rd if rd > 0 else 15 * (2 ** attempt)
+                if attempt == retries - 1:
+                    raise RuntimeError("속도 제한(429) 재시도 한도 초과 — 잠시 후 다시 실행하면 체크포인트부터 이어집니다.")
+                print(f"  ⏳ 분당 속도제한 (429) → {wait:.0f}초 대기 후 재시도 ({attempt+1}/{retries})...")
                 time.sleep(wait)
             else:
                 print(f"  ❌ HTTP {e.code}: {err_body}")
@@ -130,12 +157,52 @@ def save_dense_bin(q: np.ndarray, vmin: float, scale: float,
     print(f"  💾 Dense 저장: {path} ({mb:.1f}MB)")
 
 
+def build_verse_inputs(bible: list, input_mode: str) -> list:
+    """
+    verse 임베딩 입력 텍스트.
+      - clean  : ko + en 만 (책마다 동일한 '| 태그:' 꼬리 제거 → 책 내부 변별력↑)
+      - tagged : 기존 embed_text (ko + en + 태그) 그대로
+    """
+    if input_mode == "tagged":
+        return [item.get("embed_text", "") for item in bible]
+    out = []
+    for v in bible:
+        ko = (v.get("ko") or "").strip()
+        en = (v.get("en") or "").strip()
+        out.append(f"{ko} {en}".strip())
+    return out
+
+
+def build_passage_inputs(passages: list, bible: list) -> list:
+    """
+    passage 임베딩 입력 텍스트: "{theme_title}. {core_meaning} {절들의 ko}"
+    주제·의미를 앞에 둬 단락의 토픽을 포착. 행 순서 = passages.json 배열 순서.
+    """
+    ko_by_key = {v["key"]: (v.get("ko") or "") for v in bible}
+    out = []
+    for p in passages:
+        ko_join = " ".join(
+            ko_by_key.get(k, "") for k in p.get("verse_keys", [])
+        ).strip()
+        title = (p.get("theme_title") or "").strip()
+        meaning = (p.get("core_meaning") or "").strip()
+        out.append(f"{title}. {meaning} {ko_join}".strip())
+    return out
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", choices=["verse", "passage"], default="verse",
+                        help="임베딩 대상 (verse=bible.json / passage=passages.json)")
+    parser.add_argument("--input-mode", choices=["clean", "tagged"], default="clean",
+                        help="verse 입력: clean=ko+en / tagged=embed_text (passage엔 무영향)")
+    parser.add_argument("--out", type=str, default=None,
+                        help="출력 파일명 override (예: embeddings_dense_clean.bin 사이드 생성)")
+    args = parser.parse_args()
+
     root         = Path(__file__).parent.parent
     bible_path   = root / "public" / "data" / "bible.json"
     out_dir      = root / "public" / "data"
-    dense_path   = out_dir / "embeddings_dense.bin"
-    prog_path    = out_dir / "embed_progress_gemini.json"
 
     if not bible_path.exists():
         print("❌ bible.json 없음. parse_bible.py를 먼저 실행하세요.")
@@ -146,8 +213,26 @@ def main():
     # 성경 데이터 로드
     with open(bible_path, encoding="utf-8") as f:
         bible = json.load(f)
-    total  = len(bible)
-    texts  = [item["embed_text"] for item in bible]
+
+    if args.target == "passage":
+        passages_path = out_dir / "passages.json"
+        if not passages_path.exists():
+            print("❌ passages.json 없음. generate_passages.py를 먼저 실행하세요.")
+            return
+        with open(passages_path, encoding="utf-8") as f:
+            passages = json.load(f)
+        texts      = build_passage_inputs(passages, bible)
+        out_name   = args.out or "embeddings_passages.bin"
+        prog_name  = "embed_progress_passage.json"
+    else:
+        texts      = build_verse_inputs(bible, args.input_mode)
+        out_name   = args.out or "embeddings_dense.bin"
+        prog_name  = "embed_progress_verse.json"
+
+    total      = len(texts)
+    dense_path = out_dir / out_name
+    prog_path  = out_dir / prog_name
+    print(f"  대상: {args.target}  |  입력모드: {args.input_mode if args.target=='verse' else '-'}  |  출력: {out_name}")
 
     tier_label = "유료 (과금 활성화)" if PAID_TIER else "무료 (100 RPD)"
     eta_min    = (((total // BATCH_SIZE) + 1) * REQ_INTERVAL) / 60
@@ -157,26 +242,30 @@ def main():
     print(f"  총 구절: {total:,}개  |  배치: {BATCH_SIZE}개/요청  |  예상: ~{eta_min:.0f}분")
     print("=" * 55)
 
-    # 체크포인트 로드
+    # 체크포인트 로드 — 헤더/processed 를 믿지 않고 "실제 저장된 바이트 수"로 복원.
+    # (출력 파일이 mv/삭제됐거나 헤더가 어긋나면 구멍 없이 처음부터 재생성)
     start_idx  = 0
     all_dense  = []
 
     if prog_path.exists():
         with open(prog_path) as f:
-            prog = json.load(f)
-        start_idx = prog.get("processed", 0)
-        print(f"⏩ 이전 진행률 발견: {start_idx}/{total} 재개")
-        if dense_path.exists() and start_idx > 0:
-            # 기존 벡터 복원 (역양자화)
+            claimed = json.load(f).get("processed", 0)
+        if dense_path.exists() and claimed > 0:
             with open(dense_path, "rb") as f:
-                n_saved = struct.unpack("<I", f.read(4))[0]
+                _n      = struct.unpack("<I", f.read(4))[0]
                 d_saved = struct.unpack("<I", f.read(4))[0]
                 vm      = struct.unpack("<d", f.read(8))[0]
                 sc      = struct.unpack("<d", f.read(8))[0]
-                q_prev  = np.frombuffer(f.read(), dtype=np.uint8).reshape(n_saved, d_saved)
-                prev    = q_prev.astype(np.float32) * sc + vm
-                all_dense = list(prev)
-            print(f"  기존 {n_saved:,}개 Dense 벡터 복원 완료")
+                raw     = f.read()
+            rows = len(raw) // d_saved if d_saved else 0   # 실제 바이트 기준 행 수
+            if rows > 0 and d_saved == DENSE_DIM:
+                q_prev = np.frombuffer(raw[: rows * d_saved], dtype=np.uint8).reshape(rows, d_saved)
+                all_dense = list(q_prev.astype(np.float32) * sc + vm)
+                start_idx = rows                            # 복원된 실제 개수부터 이어서 (구멍 방지)
+                print(f"⏩ 체크포인트 복원: {rows:,}/{total} 재개 (기록상 {claimed})")
+        if not all_dense:
+            print("⚠ 체크포인트 복원 실패(출력 파일 없음/불일치) — 처음부터 재생성합니다.")
+            start_idx = 0
 
     # 배치 처리
     n_batches   = (total - start_idx + BATCH_SIZE - 1) // BATCH_SIZE
@@ -220,13 +309,15 @@ def main():
         if end_idx < total:
             time.sleep(REQ_INTERVAL)
 
-    # 완료 처리
+    # 완료 처리 — 헤더는 항상 실제 생성된 개수로 기록 (total 로 거짓 기록 금지)
     arr = np.array(all_dense, dtype=np.float32)
     q, vmin, scale = quantize_to_int8(arr)
-    save_dense_bin(q, vmin, scale, str(dense_path), total, DENSE_DIM)
-
-    if prog_path.exists():
-        prog_path.unlink()
+    save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+    if len(all_dense) != total:
+        print(f"  ⚠ 경고: 생성 {len(all_dense):,} ≠ 전체 {total:,} — 불완전(프로그파일 유지, 재실행 시 이어서)")
+    else:
+        if prog_path.exists():
+            prog_path.unlink()
 
     total_mb = os.path.getsize(dense_path) / 1024 / 1024
     print("\n" + "=" * 55)

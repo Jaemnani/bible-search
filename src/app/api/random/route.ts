@@ -23,15 +23,14 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Supabase 미설정 시 user=null → 익명 경로(body.used_ids 사용)로 동작.
+    const user = supabase ? (await supabase.auth.getUser()).data.user : null;
 
     let usedSet: Set<string>;
     let wasReset = false;
     const anonymous = !user;
 
-    if (user) {
+    if (user && supabase) {
       const { data, error } = await supabase
         .from("used_passages")
         .select("passage_id")
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
 
     if (available.length === 0) {
       wasReset = true;
-      if (user) {
+      if (user && supabase) {
         await supabase.from("used_passages").delete().eq("user_id", user.id);
       }
       usedSet = new Set();

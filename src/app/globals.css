@@ -6,8 +6,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
-  --font-serif: 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  /* DESIGN.md typography — body: Pretendard / display: Barlow(+Pretendard CJK fallback) */
+  --font-sans:    'Pretendard Variable', 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-serif:   'Pretendard Variable', 'Pretendard', sans-serif;
+  --font-display: var(--font-barlow), 'Pretendard Variable', 'Pretendard', sans-serif;
 
   --color-background:           var(--background);
   --color-foreground:           var(--foreground);
@@ -17,6 +19,8 @@
   --color-popover-foreground:   var(--popover-foreground);
   --color-primary:              var(--primary);
   --color-primary-foreground:   var(--primary-foreground);
+  --color-primary-dark:         var(--primary-dark);
+  --color-empathy:              var(--empathy);
   --color-secondary:            var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted:                var(--muted);
@@ -27,33 +31,42 @@
   --color-border:               var(--border);
   --color-input:                var(--input);
   --color-ring:                 var(--ring);
-  --radius-sm:   calc(var(--radius) - 4px);
-  --radius-md:   calc(var(--radius) - 2px);
-  --radius-lg:   var(--radius);
-  --radius-xl:   calc(var(--radius) + 4px);
+
+  /* DESIGN.md rounded — md 8px(buttons/inputs) · lg 12px(default surface) · xl 16px(hero) */
+  --radius-sm:   calc(var(--radius) - 6px); /* 6px */
+  --radius-md:   calc(var(--radius) - 4px); /* 8px */
+  --radius-lg:   var(--radius);             /* 12px */
+  --radius-xl:   calc(var(--radius) + 4px); /* 16px */
+
+  /* DESIGN.md elevation — deliberately understated */
+  --shadow-sm: 0 5px 10px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.12);
 }
 
 :root {
-  --radius: 0.75rem;
+  --radius: 0.75rem; /* 12px */
 
-  --background:           oklch(0.12 0.008 60);
-  --foreground:           oklch(0.93 0.012 60);
-  --card:                 oklch(0.16 0.008 60);
-  --card-foreground:      oklch(0.93 0.012 60);
-  --popover:              oklch(0.16 0.008 60);
-  --popover-foreground:   oklch(0.93 0.012 60);
-  --primary:              oklch(0.74 0.12 65);
-  --primary-foreground:   oklch(0.12 0.008 60);
-  --secondary:            oklch(0.22 0.008 60);
-  --secondary-foreground: oklch(0.80 0.010 60);
-  --muted:                oklch(0.20 0.006 60);
-  --muted-foreground:     oklch(0.54 0.010 60);
-  --accent:               oklch(0.22 0.010 60);
-  --accent-foreground:    oklch(0.93 0.012 60);
-  --destructive:          oklch(0.577 0.245 27.325);
-  --border:               oklch(0.26 0.008 60);
-  --input:                oklch(0.20 0.008 60);
-  --ring:                 oklch(0.74 0.12 65);
+  /* DESIGN.md — single blue accent system on warm off-white canvas (light) */
+  --background:           #fafaf6; /* background-light — warm off-white */
+  --foreground:           #0b1215; /* text-base */
+  --card:                 #ffffff; /* surface */
+  --card-foreground:      #0b1215;
+  --popover:              #ffffff;
+  --popover-foreground:   #0b1215;
+  --primary:              #0067b7; /* Anthropic Blue */
+  --primary-foreground:   #ffffff;
+  --primary-dark:         #005595; /* hover/active */
+  --empathy:              #007bff; /* Empathy Blue — secondary accent */
+  --secondary:            #f5f5f5; /* surface-muted */
+  --secondary-foreground: #0b1215;
+  --muted:                #f5f5f5;
+  --muted-foreground:     #6b7280; /* text-muted */
+  --accent:               #eaf2fb; /* subtle empathy-tinted hover surface */
+  --accent-foreground:    #0b1215;
+  --destructive:          #dc2626; /* danger */
+  --border:               #e5e7eb;
+  --input:                #e5e7eb;
+  --ring:                 #0067b7;
 }
 
 @layer base {
@@ -62,8 +75,22 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    line-height: 1.75;
+    font-size: 17px;   /* DESIGN.md body */
+    line-height: 1.7;
   }
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+/* DESIGN.md motion — bordered interactive surfaces: empathy border + 1px lift, ease-out-quint */
+.lift-hover {
+  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lift-hover:hover {
+  border-color: var(--color-empathy);
+  transform: translateY(-1px);
 }
 
 @keyframes fade-up {
@@ -77,7 +104,7 @@
 }
 
 .animate-fade-up {
-  animation: fade-up 0.4s ease both;
+  animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-fade-in {

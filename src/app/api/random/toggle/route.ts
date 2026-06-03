@@ -5,6 +5,12 @@ import { loadPassageIdSet } from "@/lib/passages";
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: "인증이 구성되지 않았습니다.", anonymous: true },
+        { status: 401 },
+      );
+    }
     const {
       data: { user },
     } = await supabase.auth.getUser();

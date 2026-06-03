@@ -29,6 +29,8 @@ export interface Passage {
   theme_title: string;
   characteristics: string[];
   core_meaning: string;
+  emotion_tags?: string[];
+  need_tags?: string[];
 }
 
 export interface HydratedVerse {

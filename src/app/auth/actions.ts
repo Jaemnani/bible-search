@@ -13,6 +13,9 @@ export async function signInWithProvider(formData: FormData) {
   }
 
   const supabase = await createClient();
+  if (!supabase) {
+    redirect(`/auth/login?error=${encodeURIComponent("인증이 구성되지 않았습니다")}`);
+  }
   const hdrs = await headers();
   const origin =
     hdrs.get("origin") ??
@@ -49,6 +52,6 @@ export async function signInWithProvider(formData: FormData) {
 
 export async function signOut() {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  if (supabase) await supabase.auth.signOut();
   redirect("/");
 }

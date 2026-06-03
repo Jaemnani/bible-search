@@ -3,36 +3,15 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Search, Loader2, ChevronDown, ChevronUp, BookOpen, Shuffle } from "lucide-react";
+import { Search, Loader2, BookOpen, Shuffle } from "lucide-react";
 import {
   getUsedPassagesStore,
   type RandomPassageResponse,
 } from "@/lib/usedPassagesStore";
 import { createClient } from "@/lib/supabase/client";
 import { RandomPassageCard } from "@/components/RandomPassageCard";
-
-interface BibleVerse {
-  id: number;
-  key: string;
-  book_ko: string;
-  book_en: string;
-  chapter: number;
-  verse: number;
-  testament: string;
-  genre: string;
-  ko: string;
-  en: string;
-}
-
-interface SearchResult extends BibleVerse {
-  score: number;
-  rank: number;
-  rerank_reason?: string;
-  context?: BibleVerse[];
-}
+import { SearchPassageCard, type SearchPassage } from "@/components/SearchPassageCard";
 
 interface SearchResponse {
   query: string;
@@ -42,7 +21,7 @@ interface SearchResponse {
   total: number;
   usedDense: boolean;
   usedGemini: boolean;
-  results: SearchResult[];
+  results: SearchPassage[];
   error?: string;
 }
 
@@ -59,125 +38,9 @@ const TAGS = [
   { label: "새 힘 주세요", query: "지치고 힘들 때 새 힘과 회복" },
 ];
 
-function VerseCard({ result, index }: { result: SearchResult; index: number }) {
-  const [showContext, setShowContext] = useState(false);
-  const [showEn, setShowEn] = useState(false);
-
-  return (
-    <Card
-      className="animate-fade-up border-border/60 bg-card hover:border-primary/30 transition-all duration-300"
-      style={{ animationDelay: `${index * 60}ms` }}
-    >
-      <CardContent className="p-6">
-        {/* Header row */}
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <span className="text-[11px] font-semibold text-muted-foreground/60 tabular-nums w-4">
-              {index + 1}
-            </span>
-            <div>
-              <span className="font-semibold text-primary text-sm">
-                {result.book_ko}
-              </span>
-              <span className="text-muted-foreground text-sm ml-1.5">
-                {result.chapter}:{result.verse}
-              </span>
-            </div>
-          </div>
-          <div className="flex gap-1.5 shrink-0">
-            <Badge
-              variant="outline"
-              className={
-                result.testament === "OT"
-                  ? "text-violet-400 border-violet-400/30 bg-violet-400/5 text-[10px] px-2 py-0"
-                  : "text-sky-400 border-sky-400/30 bg-sky-400/5 text-[10px] px-2 py-0"
-              }
-            >
-              {result.testament === "OT" ? "구약" : "신약"}
-            </Badge>
-            <Badge
-              variant="outline"
-              className="text-primary/70 border-primary/20 bg-primary/5 text-[10px] px-2 py-0"
-            >
-              {result.genre}
-            </Badge>
-          </div>
-        </div>
-
-        {/* Verse text */}
-        <p className="text-foreground/90 text-[1.05rem] leading-[1.95] font-serif word-break-keep-all mb-3">
-          {result.ko}
-        </p>
-
-        {/* Rerank reason */}
-        {result.rerank_reason && (
-          <p className="text-[0.78rem] text-primary/70 leading-relaxed mb-3 pl-3 border-l-2 border-primary/30">
-            {result.rerank_reason}
-          </p>
-        )}
-
-        {/* Toggles */}
-        <div className="flex gap-3 mt-1">
-          {result.en && (
-            <button
-              onClick={() => setShowEn(!showEn)}
-              className="flex items-center gap-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showEn ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              NIV
-            </button>
-          )}
-          {result.context && result.context.length > 1 && (
-            <button
-              onClick={() => setShowContext(!showContext)}
-              className="flex items-center gap-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showContext ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              문맥
-            </button>
-          )}
-        </div>
-
-        {/* English */}
-        {showEn && result.en && (
-          <>
-            <Separator className="my-3 bg-border/50" />
-            <p className="text-sm text-muted-foreground italic leading-relaxed">
-              &ldquo;{result.en}&rdquo;
-            </p>
-          </>
-        )}
-
-        {/* Context */}
-        {showContext && result.context && (
-          <>
-            <Separator className="my-3 bg-border/50" />
-            <div className="space-y-1.5 pl-3 border-l-2 border-border">
-              {result.context.map((ctx) => (
-                <p
-                  key={ctx.key}
-                  className={`text-sm leading-relaxed ${ctx.verse === result.verse
-                      ? "text-foreground/90 font-medium"
-                      : "text-muted-foreground"
-                    }`}
-                >
-                  <span className="text-primary/60 font-semibold mr-2 text-xs">
-                    {ctx.verse}
-                  </span>
-                  {ctx.ko}
-                </p>
-              ))}
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function Home() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [results, setResults] = useState<SearchPassage[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
@@ -197,6 +60,12 @@ export default function Home() {
 
   useEffect(() => {
     const supabase = createClient();
+    if (!supabase) {
+      // Supabase 미설정 — 익명 모드로 동작.
+      setAuthenticated(false);
+      setAuthLoaded(true);
+      return;
+    }
     supabase.auth.getUser().then(({ data }) => {
       setAuthenticated(!!data.user);
       setAuthLoaded(true);
@@ -324,9 +193,9 @@ export default function Home() {
               <button
                 key={tag.label}
                 onClick={() => handleTagClick(tag)}
-                className={`text-[0.78rem] px-3 py-1.5 rounded-full border transition-all duration-200 ${activeTag === tag.label
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground hover:bg-accent"
+                className={`text-[0.78rem] px-3 py-1.5 rounded-full border transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98] ${activeTag === tag.label
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground bg-card hover:border-empathy hover:text-foreground hover:-translate-y-px"
                   }`}
               >
                 {tag.label}
@@ -339,7 +208,7 @@ export default function Home() {
             <button
               onClick={fetchRandom}
               disabled={randomLoading || !authLoaded}
-              className="inline-flex items-center gap-1.5 text-[0.78rem] px-3 py-1.5 rounded-full border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 transition-all duration-200 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 text-[0.78rem] px-3 py-1.5 rounded-full border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-empathy hover:-translate-y-px active:scale-[0.98] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] disabled:opacity-50"
             >
               {randomLoading ? (
                 <Loader2 size={12} className="animate-spin" />
@@ -374,7 +243,7 @@ export default function Home() {
         {random && !randomLoading && !loading && !results && (
           <div className="animate-fade-in space-y-3">
             {random.was_reset && (
-              <div className="text-[0.78rem] text-amber-300/90 bg-amber-300/10 border border-amber-300/30 rounded-md px-3 py-2">
+              <div className="text-[0.78rem] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                 모든 말씀을 한 번씩 만나셨어요. 처음부터 다시 시작합니다.
               </div>
             )}
@@ -424,7 +293,7 @@ export default function Home() {
                       {meta.emotions.map((e) => (
                         <span
                           key={e}
-                          className="text-[0.7rem] px-2.5 py-0.5 rounded-full bg-violet-400/8 border border-violet-400/20 text-violet-400/80"
+                          className="text-[0.7rem] px-2.5 py-0.5 rounded-full bg-empathy/8 border border-empathy/20 text-empathy"
                         >
                           {e}
                         </span>
@@ -435,7 +304,7 @@ export default function Home() {
 
                 <div className="space-y-3">
                   {results.map((result, i) => (
-                    <VerseCard key={result.key} result={result} index={i} />
+                    <SearchPassageCard key={result.id} passage={result} index={i} />
                   ))}
                 </div>
               </>
