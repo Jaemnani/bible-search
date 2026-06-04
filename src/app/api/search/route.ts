@@ -495,39 +495,49 @@ export async function POST(req: NextRequest) {
     const verseDense = loadDense("embeddings_dense.bin");
     const bibleMap = loadBibleMap();
 
-    // Stage 1+2a: 쿼리 확장 + 임베딩 병렬
+    // Stage 1: 쿼리 확장(먼저) — 그 search_query를 dense 입력으로 사용하기 위함.
+    // 데이터 로드(위)는 동기 fs라 이미 완료. 추가 직렬 구간은 임베딩 1콜뿐(~1-2s, 예산 내).
     const embedDim = passageDense?.dim ?? verseDense?.dim ?? 512;
-    const [expansion, queryEmbedding] = await Promise.all([
-      expandQueryWithGemini(userQuery),
-      getQueryEmbedding(userQuery, embedDim),
-    ]);
+    const expansion = await expandQueryWithGemini(userQuery);
     const searchQuery = expansion?.search_query ?? userQuery;
 
-    // 열화(degraded) 진단 — 검색 로직은 변경 없음, 상태만 파생/노출.
-    // dense(뜻 검색)가 핵심이므로 dense 미사용 = 열화로 간주.
+    // Stage 2a: dense 쿼리 임베딩 — 확장 성공 시 search_query(성경 문체)를 임베딩.
+    // 원쿼리("지치고 불안")를 임베딩하면 '감정을 표현한' 탄식 본문과 매칭되어
+    // 위로/응답 본문을 놓침(진단 확인). 확장 실패 시에만 원쿼리로 폴백(열등 경로).
+    const denseInput = expansion?.search_query ?? userQuery;
+    const queryEmbedding = await getQueryEmbedding(denseInput, embedDim);
+
+    // 열화(degraded) — 검색 로직 외 상태만 파생/노출.
     const usedDense = !!queryEmbedding && !!passageDense;
     const usedGemini = !!expansion;
+    let degraded = false;
     let degradedReason: string | null = null;
-    if (!queryEmbedding && !expansion) degradedReason = "no_dense_no_expansion";
-    else if (!queryEmbedding) degradedReason = "no_dense";
-    else if (!expansion) degradedReason = "no_expansion";
-    const degraded = !usedDense;
-    if (degraded && !degradedReason) degradedReason = "no_index"; // 임베딩 인덱스 부재
+    if (!usedDense) {
+      degraded = true;
+      degradedReason = !queryEmbedding && !expansion ? "no_dense_no_expansion"
+        : !queryEmbedding ? "no_dense" : "no_index";
+    } else if (!expansion) {
+      // dense는 동작하나 원쿼리로 임베딩한 열등 경로(확장 실패) — 무음 처리 금지.
+      degraded = true;
+      degradedReason = "no_expansion_raw_dense";
+    }
     if (degraded) {
       console.warn(
-        `[Search] 열화 폴백: reason=${degradedReason} (dense=${usedDense} expansion=${usedGemini}) ` +
+        `[Search] 열화: reason=${degradedReason} (dense=${usedDense} expansion=${usedGemini}) ` +
         `query=${JSON.stringify(userQuery.slice(0, 50))}`
       );
     }
 
-    // Stage 2: 단락 하이브리드 검색 → 상위 30 후보
+    // Stage 2: 단락 하이브리드 검색 → 리랭킹 후보 풀.
+    // 풀=20: 라이브 진단상 정답 RRF 순위 중앙 9·경계 15 → 20이면 여유 있게 포함.
+    // (dense 입력을 search_query로 고친 전제에서만 유효 — 정답이 RRF 상위에 모임.)
     const ranked = passageHybridSearch(
       passages,
       queryEmbedding,
       passageDense,
       searchQuery,
       expansion,
-      30
+      20
     );
 
     // Stage 3: 후보별 핵심절 선정
