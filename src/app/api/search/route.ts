@@ -34,8 +34,21 @@ const denseCaches = new Map<string, DenseData | null>();
 let passageTextCache: string[] | null = null;
 let passageSparseCache: { df: Map<string, number>; dl: Float64Array; avgdl: number } | null = null;
 
-// verse / passage 임베딩 공통 로더. 포맷:
-//   [total:u32][dim:u32][vmin:f64][scale:f64] + total*dim uint8
+// IEEE half(float16) → float32 (Vercel Node 호환 위해 수동 변환, Float16Array 비의존)
+function halfToFloat(h: number): number {
+  const s = (h & 0x8000) >> 15;
+  const e = (h & 0x7c00) >> 10;
+  const f = h & 0x03ff;
+  if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+  if (e === 0x1f) return f ? NaN : (s ? -Infinity : Infinity);
+  return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+}
+
+const FP16_MAGIC = 0x32424d45; // 'EMB2'
+
+// verse / passage 임베딩 공통 로더. 두 포맷 지원:
+//   int8 : [total:u32][dim:u32][vmin:f64][scale:f64] + total*dim uint8
+//   fp16 : [magic:u32=EMB2][total:u32][dim:u32] + total*dim float16  (양자화 노이즈 없음)
 function loadDense(file: string): DenseData | null {
   if (denseCaches.has(file)) return denseCaches.get(file)!;
   const filePath = path.join(process.cwd(), "public", "data", file);
@@ -45,28 +58,38 @@ function loadDense(file: string): DenseData | null {
   }
   const buf = fs.readFileSync(filePath);
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const total = view.getUint32(0, true);
-  const dim = view.getUint32(4, true);
-  const vmin = view.getFloat64(8, true);
-  const scale = view.getFloat64(16, true);
 
-  const quantized = new Uint8Array(buf.buffer, buf.byteOffset + 24, total * dim);
-  const floats = new Float32Array(total * dim);
-  for (let i = 0; i < quantized.length; i++) {
-    floats[i] = quantized[i] * scale + vmin;
-  }
-  // 벡터 노름 사전계산 — 매 쿼리 재계산 방지.
-  const norms = new Float32Array(total);
-  for (let v = 0; v < total; v++) {
-    const off = v * dim;
-    let s = 0;
-    for (let i = 0; i < dim; i++) {
-      const x = floats[off + i];
-      s += x * x;
+  let total: number, dim: number;
+  const floats: Float32Array = (() => {
+    if (view.getUint32(0, true) === FP16_MAGIC) {
+      total = view.getUint32(4, true);
+      dim = view.getUint32(8, true);
+      const out = new Float32Array(total * dim);
+      // DataView.getUint16 사용 — 바이트 정렬 무관(Uint16Array 정렬 이슈 회피).
+      let off = 12;
+      for (let i = 0; i < out.length; i++, off += 2) out[i] = halfToFloat(view.getUint16(off, true));
+      return out;
     }
+    // 레거시 int8
+    total = view.getUint32(0, true);
+    dim = view.getUint32(4, true);
+    const vmin = view.getFloat64(8, true);
+    const scale = view.getFloat64(16, true);
+    const quantized = new Uint8Array(buf.buffer, buf.byteOffset + 24, total * dim);
+    const out = new Float32Array(total * dim);
+    for (let i = 0; i < quantized.length; i++) out[i] = quantized[i] * scale + vmin;
+    return out;
+  })();
+
+  // 벡터 노름 사전계산 — 매 쿼리 재계산 방지.
+  const norms = new Float32Array(total!);
+  for (let v = 0; v < total!; v++) {
+    const o = v * dim!;
+    let s = 0;
+    for (let i = 0; i < dim!; i++) s += floats[o + i] ** 2;
     norms[v] = Math.sqrt(s);
   }
-  const data: DenseData = { vecs: floats, dim, total, norms };
+  const data: DenseData = { vecs: floats, dim: dim!, total: total!, norms };
   denseCaches.set(file, data);
   return data;
 }

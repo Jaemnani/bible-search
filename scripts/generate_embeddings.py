@@ -179,6 +179,30 @@ def load_f32_sidecar(path: str):
     return data[: rows * dim].reshape(rows, dim) if rows else None
 
 
+# fp16 포맷: [magic:'EMB2'(0x32424D45) 4B][total:4B][dim:4B][float16 data]
+# route.ts loadDense 가 첫 u32 매직으로 int8/fp16 분기. 양자화 노이즈 제거(검색 핵심).
+FP16_MAGIC = 0x32424D45
+
+
+def save_fp16_bin(arr: np.ndarray, path: str, n: int, dim: int):
+    with open(path, "wb") as f:
+        f.write(struct.pack("<I", FP16_MAGIC))
+        f.write(struct.pack("<I", int(n)))
+        f.write(struct.pack("<I", int(dim)))
+        f.write(np.ascontiguousarray(arr, dtype=np.float16).tobytes())
+    mb = os.path.getsize(path) / 1024 / 1024
+    print(f"  💾 Dense 저장(fp16): {path} ({mb:.1f}MB)")
+
+
+def save_dense_any(arr: np.ndarray, path: str, quant: str):
+    n, dim = arr.shape
+    if quant == "fp16":
+        save_fp16_bin(arr, path, n, dim)
+    else:
+        q, vmin, scale = quantize_to_int8(arr)
+        save_dense_bin(q, vmin, scale, path, n, dim)
+
+
 def build_verse_inputs(bible: list, input_mode: str) -> list:
     """
     verse 임베딩 입력 텍스트.
@@ -220,6 +244,8 @@ def main():
                         help="verse 입력: clean=ko+en / tagged=embed_text (passage엔 무영향)")
     parser.add_argument("--out", type=str, default=None,
                         help="출력 파일명 override (예: embeddings_dense_clean.bin 사이드 생성)")
+    parser.add_argument("--quant", choices=["int8", "fp16"], default="int8",
+                        help="저장 양자화: int8(15MB·verse용) / fp16(무손실급·검색 핵심 passage 권장)")
     args = parser.parse_args()
 
     root         = Path(__file__).parent.parent
@@ -283,7 +309,7 @@ def main():
             start_idx = f32_prev.shape[0]
             print(f"⏩ f32 사이드카 무손실 복원: {start_idx:,}/{total} 재개 (기록상 {claimed})")
         elif dense_path.exists() and claimed > 0:
-            # 2순위: int8 .bin (역양자화 손실) — 실제 바이트 기준 행 수로 복원
+            # 2순위: 레거시 int8 .bin (역양자화 손실) — 실제 바이트 기준 행 수로 복원
             with open(dense_path, "rb") as f:
                 _n      = struct.unpack("<I", f.read(4))[0]
                 d_saved = struct.unpack("<I", f.read(4))[0]
@@ -291,6 +317,8 @@ def main():
                 sc      = struct.unpack("<d", f.read(8))[0]
                 raw     = f.read()
             rows = len(raw) // d_saved if d_saved else 0
+            if _n == FP16_MAGIC:
+                rows = 0  # fp16 파일인데 사이드카 없음 → int8로 오독 금지, 처음부터
             if rows > 0 and d_saved == DENSE_DIM:
                 q_prev = np.frombuffer(raw[: rows * d_saved], dtype=np.uint8).reshape(rows, d_saved)
                 all_dense = list(q_prev.astype(np.float32) * sc + vm)
@@ -316,8 +344,7 @@ def main():
             print(f"\n  💾 중단 전 진행분 저장 중... ({len(all_dense):,}개)")
             if all_dense:
                 arr = np.array(all_dense, dtype=np.float32)
-                q, vmin, scale = quantize_to_int8(arr)
-                save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+                save_dense_any(arr, str(dense_path), args.quant)
                 save_f32_sidecar(arr, str(f32_path))
                 with open(prog_path, "w") as f:
                     json.dump({"processed": i}, f)
@@ -335,8 +362,7 @@ def main():
 
         if batch_count % CHECKPOINT_EVERY == 0 or end_idx == total:
             arr = np.array(all_dense, dtype=np.float32)
-            q, vmin, scale = quantize_to_int8(arr)
-            save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+            save_dense_any(arr, str(dense_path), args.quant)
             save_f32_sidecar(arr, str(f32_path))
             with open(prog_path, "w") as f:
                 json.dump({"processed": end_idx}, f)
@@ -346,8 +372,7 @@ def main():
 
     # 완료 처리 — 헤더는 항상 실제 생성된 개수로 기록 (total 로 거짓 기록 금지)
     arr = np.array(all_dense, dtype=np.float32)
-    q, vmin, scale = quantize_to_int8(arr)
-    save_dense_bin(q, vmin, scale, str(dense_path), len(all_dense), DENSE_DIM)
+    save_dense_any(arr, str(dense_path), args.quant)
     save_f32_sidecar(arr, str(f32_path))
     if len(all_dense) != total:
         print(f"  ⚠ 경고: 생성 {len(all_dense):,} ≠ 전체 {total:,} — 불완전(프로그파일 유지, 재실행 시 이어서)")
