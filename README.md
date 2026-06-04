@@ -28,12 +28,12 @@ Passage-centric semantic search: 30,944 verses are grouped into 5,799 thematic p
 | 구분 | 선택 |
 |---|---|
 | 프레임워크 | Next.js 16 (App Router, TypeScript) |
-| 임베딩 모델 | `gemini-embedding-001` (512차원, 오프라인 생성) — verse는 ko+en 클린 입력, 단락은 주제+의미+본문 |
+| 임베딩 모델 | `gemini-embedding-001` (512차원) — 단락=fp16(무손실급), verse=int8 |
 | 벡터 DB | 정적 파일 (`embeddings_passages.bin` · `embeddings_dense.bin` · `bible.json`) |
 | 검색 단위 | **단락(passage)** — 결과는 의미 단위 단락 + 핵심 절 강조 |
-| 검색 방식 | 단락 Dense(밀집) + Sparse(희소) + 감정/필요 태그 부스트 → RRF 합산 |
-| 쿼리 확장 | Gemini 2.5 Flash-Lite (감정어 → 성경 키워드 변환) |
-| 리랭킹 | Gemini 2.5 Flash-Lite (단락 단위) |
+| 검색 방식 | 단락 Dense(0.70) + Sparse BM25-lite(0.18) + 감정/필요 태그(0.12) → RRF(K=20) |
+| 쿼리 확장 | Gemini 2.5 Flash-Lite (감정→성경 키워드) — **dense 임베딩 입력으로도 사용** |
+| 리랭킹 | Gemini 2.5 Flash-Lite (단락 단위, 후보 20→상위 5) |
 | 디자인 | 라이트 테마 — `docs/DESIGN.md` (Anthropic Blue + Empathy Blue, Pretendard/Barlow) |
 | 호스팅 | Vercel |
 
@@ -42,30 +42,37 @@ Passage-centric semantic search: 30,944 verses are grouped into 5,799 thematic p
 ```
 사용자 쿼리
     │
-    ├─ [병렬] Gemini 쿼리 확장 → 감정 분석 + 성경 키워드 추출
-    │         Gemini 임베딩   → 쿼리 벡터 (512차원)
+    ├─ Stage 1  Gemini 쿼리 확장 → 감정/필요 분석 + 성경 문체 search_query
     │
-    ├─ Stage 2  단락 검색 (후보 5,799개)
+    ├─ Stage 2a Gemini 임베딩 → search_query 를 임베딩 (원쿼리 X)
+    │           ※ 원쿼리("지치고 불안")는 '감정을 표현한' 탄식 본문과 매칭됨.
+    │             성경 문체로 변환된 search_query 를 임베딩해야 '위로/응답' 본문이 잡힘.
+    │
+    ├─ Stage 2b 단락 검색 (후보 5,799개)
     │   ├─ Dense  : 단락 임베딩 Cosine (embeddings_passages.bin)
-    │   ├─ Sparse : 단락 텍스트(주제+의미+태그+본문) n-gram 매칭
+    │   ├─ Sparse : 단락 텍스트 BM25-lite (char trigram + IDF + 길이정규화)
     │   ├─ Tag    : 단락 감정/필요 태그 ∩ 쿼리확장 → 부스트
-    │   └─ RRF 합산 → 상위 30개 단락
+    │   └─ RRF 합산 (dense 0.70 / sparse 0.18 / tag 0.12, K=20) → 상위 20개
     │
     ├─ Stage 3  핵심 절 선정 — 단락 내 각 절을 쿼리 임베딩으로 채점 (verse 인덱스)
     │
     └─ Stage 4  Gemini 리랭킹 → 상위 5개 단락 (핵심 절 강조 + 추천 이유)
 ```
 
+> **열화모드**: dense/expansion(둘 다 Gemini) 호출이 실패하면 응답에 `degraded:true`
+> + `degradedReason` 을 표시하고, 화면에 비차단 안내 배너를 띄웁니다. 무음으로
+> 열등한 결과를 정답인 양 반환하지 않습니다.
+
 ## 데이터
 
 | 항목 | 수치 |
 |---|---|
 | 총 구절 수 | 30,944개 (한국어 개역개정 + 영어 NIV) |
-| 단락 수 | **5,799개** (장르별 길이 보장, 최대 11절) |
-| Verse 임베딩 | `embeddings_dense.bin` · 30,944 × 512차원 · uint8 (핵심 절 채점·anchor) |
-| 단락 임베딩 | `embeddings_passages.bin` · 5,799 × 512차원 · uint8 (단락 검색) |
+| 단락 수 | **5,799개** (장르별 길이 보장, 최대 11절, 빈 메타 0) |
+| Verse 임베딩 | `embeddings_dense.bin` · 30,944 × 512 · int8 (핵심 절 채점·anchor) |
+| 단락 임베딩 | `embeddings_passages.bin` · 5,799 × 512 · **fp16** (단락 검색, 양자화 노이즈 없음) |
 | 단락 태그 | 감정 `emotion_tags` · 필요 `need_tags` (통제어휘, 약 90% 커버) |
-| 파일 크기 | `bible.json` 24MB + `embeddings_dense.bin` 15MB + `embeddings_passages.bin` 3MB |
+| 파일 크기 | `bible.json` 24MB + `embeddings_dense.bin` 15MB + `embeddings_passages.bin` 6MB |
 
 ## 랜덤 구절 추천
 
@@ -118,8 +125,8 @@ python3 scripts/generate_passage_tags.py
 # 4) 빈 메타데이터만 타깃 백필 (선택)
 python3 scripts/backfill_passage_meta.py
 
-# 5) 단락 임베딩 → embeddings_passages.bin
-python3 scripts/generate_embeddings.py --target passage
+# 5) 단락 임베딩(fp16) → embeddings_passages.bin
+python3 scripts/generate_embeddings.py --target passage --quant fp16
 
 # 6) 품질·ID 변경 검증 (읽기전용)
 python3 scripts/passage_validate.py --baseline public/data/passages.baseline.json --emit-migration
@@ -175,11 +182,11 @@ pip install numpy   # 의존성
 # verse (ko+en 클린) → embeddings_dense.bin
 python3 scripts/generate_embeddings.py --target verse --input-mode clean
 
-# 단락 → embeddings_passages.bin (passages.json 필요)
-python3 scripts/generate_embeddings.py --target passage
+# 단락(fp16) → embeddings_passages.bin (passages.json 필요)
+python3 scripts/generate_embeddings.py --target passage --quant fp16
 ```
 
-`scripts/generate_embeddings.py` 상단의 `PAID_TIER` 플래그로 무료/유료 티어를 전환합니다. 429(속도제한)는 자동으로 재시도하고 진짜 일일 한도 초과 시에만 중단하며, 중단돼도 체크포인트에서 이어서 재생성합니다.
+`--quant {int8|fp16}` 로 저장 정밀도를 선택합니다(검색 핵심인 단락은 fp16 권장). 양자화 재실험용 무손실 float32 사이드카는 `embeddings_src/`(gitignore)에 함께 저장됩니다. `PAID_TIER` 플래그로 무료/유료 티어를 전환하며, 429(속도제한)는 자동 재시도·체크포인트 재개하고 진짜 일일 한도 초과 시에만 중단합니다.
 
 ## Vercel 배포
 
