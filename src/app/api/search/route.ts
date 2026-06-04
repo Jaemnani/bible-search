@@ -361,7 +361,9 @@ function passageHybridSearch(
   topK: number
 ): { idx: number; score: number }[] {
   const N = passages.length;
-  const RRF_K = 60;
+  // RRF_K 작을수록 상위 순위 분해능↑(1등과 50등 격차 확대). 60→20: 융합 sweep상
+  // 정답 RRF 중앙 5→2 개선. (dense 입력 수정 전제에서 유효.)
+  const RRF_K = 20;
   const denseRanks = new Map<number, number>();
   const sparseRanks = new Map<number, number>();
   const tagRanks = new Map<number, number>();
@@ -436,8 +438,10 @@ function passageHybridSearch(
   }
 
   // RRF fusion (가중치 합 = 1)
-  const denseW = queryEmbedding ? 0.55 : 0;
-  const tagW = expansion ? 0.15 : 0;
+  // dense가 핵심 신호(입력 수정 후) → 비중↑. sparse/tag는 보조 부스트로 격하.
+  // dense 부재 시 sparseW=1-tagW(폴백), expansion 부재 시 tagW=0.
+  const denseW = queryEmbedding ? 0.70 : 0;
+  const tagW = expansion ? 0.12 : 0;
   const sparseW = 1 - denseW - tagW;
   const allIdx = new Set([...denseRanks.keys(), ...sparseRanks.keys(), ...tagRanks.keys()]);
   const rrfScores: [number, number][] = [];
