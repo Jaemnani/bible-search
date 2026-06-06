@@ -37,6 +37,11 @@ export function SearchPassageCard({
 }) {
   const [showDetail, setShowDetail] = useState(false);
 
+  // 검색에 가장 들어맞는 핵심절을 "주인공"으로, 나머지는 앞뒤 문맥으로.
+  const anchor =
+    passage.verses.find((v) => v.verse === passage.anchor_verse) ?? passage.verses[0];
+  const context = passage.verses.filter((v) => v.verse !== anchor?.verse);
+
   return (
     <Card
       className="animate-fade-up lift-hover"
@@ -75,50 +80,56 @@ export function SearchPassageCard({
           </div>
         </div>
 
-        {/* Theme title */}
+        {/* Theme title (보조 라벨) */}
         {passage.theme_title && (
-          <h3 className="text-lg font-semibold text-foreground mb-2">
+          <p className="text-[0.82rem] text-muted-foreground mb-3">
             {passage.theme_title}
-          </h3>
+          </p>
+        )}
+
+        {/* 핵심 구절 (주인공) — 검색에 가장 들어맞는 한 절을 헤드라인으로 */}
+        {anchor && (
+          <div className="rounded-lg bg-empathy/8 ring-1 ring-empathy/20 px-4 py-3.5">
+            <div className="text-[11px] font-semibold text-empathy mb-1.5 tracking-wide">
+              {passage.book_ko} {passage.chapter}:{anchor.verse}
+            </div>
+            <p className="text-[1.15rem] leading-[1.85] font-medium text-foreground word-break-keep-all">
+              {anchor.ko}
+            </p>
+          </div>
         )}
 
         {/* Rerank reason */}
         {passage.rerank_reason && (
-          <p className="text-[0.85rem] text-primary leading-relaxed mb-3 pl-3 border-l-2 border-empathy/50">
+          <p className="text-[0.85rem] text-primary leading-relaxed mt-3 pl-3 border-l-2 border-empathy/50">
             {passage.rerank_reason}
           </p>
         )}
 
-        {/* Verses (anchor 강조) */}
-        <div className="space-y-1.5 mb-3">
-          {passage.verses.map((v) => {
-            const isAnchor = v.verse === passage.anchor_verse;
-            return (
+        {/* 앞뒤 문맥 (핵심절 제외한 단락) */}
+        {context.length > 0 && (
+          <div className="mt-3 space-y-1 pl-3 border-l border-border/70">
+            <span className="text-[10px] text-muted-foreground/70 font-medium tracking-wide">
+              앞뒤 문맥
+            </span>
+            {context.map((v) => (
               <p
                 key={v.verse}
-                className={
-                  isAnchor
-                    ? "text-foreground rounded-md bg-empathy/8 ring-1 ring-empathy/15 px-2 -mx-2 py-1 text-[1.05rem] leading-[1.9] word-break-keep-all font-medium"
-                    : "text-foreground/70 text-[1.02rem] leading-[1.9] word-break-keep-all"
-                }
+                className="text-[0.9rem] text-muted-foreground leading-[1.8] word-break-keep-all"
               >
-                <span
-                  className={`font-semibold mr-2 text-xs align-top ${
-                    isAnchor ? "text-primary" : "text-primary/50"
-                  }`}
-                >
+                <span className="text-primary/40 font-semibold mr-1.5 text-[11px] align-top">
                   {v.verse}
                 </span>
                 {v.ko}
               </p>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Detail toggle */}
         <button
           onClick={() => setShowDetail(!showDetail)}
-          className="flex items-center gap-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1 text-[0.75rem] text-muted-foreground hover:text-foreground transition-colors mt-3"
         >
           {showDetail ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           의미 · 특징 · 영어
