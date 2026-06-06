@@ -185,7 +185,7 @@ search_query 작성 규칙:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 256 },
+          generationConfig: { temperature: 0, maxOutputTokens: 256 },
         }),
         signal: AbortSignal.timeout(4000),
       }
@@ -252,7 +252,7 @@ ${list}
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
+          generationConfig: { temperature: 0, maxOutputTokens: 512 },
         }),
         signal: AbortSignal.timeout(5000),
       }
