@@ -185,7 +185,11 @@ search_query 작성 규칙:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 256 },
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 512, // search_query가 15단어 이상이라 256은 JSON 잘림 위험
+            responseMimeType: "application/json", // 프롬프트 외 산문 섞임 방지 → 안정적 파싱
+          },
         }),
         signal: AbortSignal.timeout(4000),
       }
@@ -252,7 +256,11 @@ ${list}
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 512 },
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 1024, // 5개 결과 × 한국어 reason — 512는 잘림 위험
+            responseMimeType: "application/json",
+          },
         }),
         signal: AbortSignal.timeout(5000),
       }
@@ -422,7 +430,9 @@ function passageHybridSearch(
 
   // 태그 부스트: 단락의 통제어휘 태그 ∩ 쿼리확장(감정/키워드)
   if (expansion) {
-    const wanted = [...(expansion.emotions ?? []), ...(expansion.biblical_keywords ?? [])];
+    // 빈 문자열 제거 — tag.includes("")가 항상 true라 모든 단락이 매칭되는 노이즈 방지.
+    const wanted = [...(expansion.emotions ?? []), ...(expansion.biblical_keywords ?? [])]
+      .filter((w) => typeof w === "string" && w.trim().length > 0);
     const tagScores: [number, number][] = [];
     for (let i = 0; i < N; i++) {
       const tags = [...(passages[i].emotion_tags ?? []), ...(passages[i].need_tags ?? [])];
@@ -440,7 +450,9 @@ function passageHybridSearch(
   // RRF fusion (가중치 합 = 1)
   // dense가 핵심 신호(입력 수정 후) → 비중↑. sparse/tag는 보조 부스트로 격하.
   // dense 부재 시 sparseW=1-tagW(폴백), expansion 부재 시 tagW=0.
-  const denseW = queryEmbedding ? 0.70 : 0;
+  // denseW는 dense 블록 실행 조건(queryEmbedding && passageDense)과 반드시 일치해야 함 —
+  // passageDense 누락 시 denseRanks가 비어 denseW가 상수 폴백 순위에 낭비되고 sparse 폴백이 깨짐.
+  const denseW = queryEmbedding && passageDense ? 0.70 : 0;
   const tagW = expansion ? 0.12 : 0;
   const sparseW = 1 - denseW - tagW;
   const allIdx = new Set([...denseRanks.keys(), ...sparseRanks.keys(), ...tagRanks.keys()]);
@@ -581,6 +593,9 @@ export async function POST(req: NextRequest) {
       elapsed < 7000
         ? await rerankPassages(userQuery, expansion, passages, candidates)
         : candidates.slice(0, 5);
+    // 리랭킹이 실제로 수행됐는지 — reason은 모델 리랭킹 성공 경로에서만 채워짐.
+    // (예산 초과 스킵·API 실패·후보≤3 폴백이면 false → UI가 "AI 추천"으로 오기재하지 않음.)
+    const didRerank = reranked.some((c) => !!c.reason);
 
     // 상위 5 단락 hydrate (절 ko/en)
     const results = reranked.map((c, rank) => {
@@ -620,6 +635,7 @@ export async function POST(req: NextRequest) {
       total: passages.length,
       usedDense,
       usedGemini,
+      reranked: didRerank,
       degraded,
       degradedReason,
       results,
