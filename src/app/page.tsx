@@ -21,6 +21,7 @@ interface SearchResponse {
   total: number;
   usedDense: boolean;
   usedGemini: boolean;
+  reranked?: boolean;
   degraded?: boolean;
   degradedReason?: string | null;
   results: SearchPassage[];
@@ -48,6 +49,7 @@ export default function Home() {
   const [meta, setMeta] = useState<{
     usedDense: boolean;
     usedGemini: boolean;
+    reranked: boolean;
     degraded: boolean;
     expandedQuery: string | null;
     emotions: string[];
@@ -55,20 +57,16 @@ export default function Home() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Supabase 구성 여부는 렌더 시점에 동기 확정 — 효과 내 setState(cascading render) 회피.
+  const [supabase] = useState(() => createClient());
   const [authenticated, setAuthenticated] = useState(false);
-  const [authLoaded, setAuthLoaded] = useState(false);
+  const [authLoaded, setAuthLoaded] = useState(supabase === null); // 미설정이면 즉시 완료(익명)
   const [random, setRandom] = useState<RandomPassageResponse | null>(null);
   const [randomLoading, setRandomLoading] = useState(false);
   const [randomError, setRandomError] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) {
-      // Supabase 미설정 — 익명 모드로 동작.
-      setAuthenticated(false);
-      setAuthLoaded(true);
-      return;
-    }
+    if (!supabase) return; // 미설정 — 익명 모드로 동작.
     supabase.auth.getUser().then(({ data }) => {
       setAuthenticated(!!data.user);
       setAuthLoaded(true);
@@ -77,7 +75,7 @@ export default function Home() {
       setAuthenticated(!!session?.user);
     });
     return () => sub.subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   const fetchRandom = useCallback(async () => {
     setRandomLoading(true);
@@ -125,6 +123,7 @@ export default function Home() {
       setMeta({
         usedDense: data.usedDense,
         usedGemini: data.usedGemini ?? false,
+        reranked: data.reranked ?? false,
         degraded: data.degraded ?? false,
         expandedQuery: data.expanded_query ?? null,
         emotions: data.emotions ?? [],
@@ -300,7 +299,7 @@ export default function Home() {
                 <div className="mb-4 space-y-2">
                   <p className="text-xs text-muted-foreground">
                     <span className="text-foreground/70 font-medium">&ldquo;{query}&rdquo;</span>
-                    {" "}— {meta?.usedGemini ? "AI 추천" : meta?.usedDense ? "의미 기반 검색" : "키워드 검색"}
+                    {" "}— {meta?.reranked ? "AI 추천" : meta?.usedDense ? "의미 기반 검색" : "키워드 검색"}
                   </p>
                   {meta?.emotions && meta.emotions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">

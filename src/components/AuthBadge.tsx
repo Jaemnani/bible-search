@@ -6,19 +6,15 @@ import { createClient } from "@/lib/supabase/client";
 import { getLocalUsedIds, clearLocalUsedIds } from "@/lib/usedPassagesStore";
 
 export function AuthBadge() {
+  // Supabase 구성 여부는 env로 렌더 시점에 동기 확정 — 효과 내 setState(cascading render) 회피.
+  const [supabase] = useState(() => createClient());
+  const configured = supabase !== null;
   const [email, setEmail] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [configured, setConfigured] = useState(true);
+  const [loaded, setLoaded] = useState(supabase === null); // 미설정이면 대기할 비동기 없음 → 즉시 완료
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = createClient();
-    if (!supabase) {
-      // Supabase 미설정 — 인증 UI 숨김(익명 모드).
-      setConfigured(false);
-      setLoaded(true);
-      return;
-    }
+    if (!supabase) return; // 미설정 — 인증 UI 숨김(익명 모드).
 
     supabase.auth.getUser().then(({ data }) => {
       setEmail(data.user?.email ?? null);
@@ -51,7 +47,7 @@ export function AuthBadge() {
     });
 
     return () => sub.subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   if (!loaded) {
     return <div className="h-6" />;
