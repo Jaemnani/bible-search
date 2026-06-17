@@ -86,12 +86,8 @@ Passage-centric semantic search: 30,944 verses are grouped into 5,799 thematic p
 
 ### 사용 기록 저장
 
-| 상태 | 저장 위치 |
-|---|---|
-| 익명 | 브라우저 `localStorage` (`bible.used_passages`) |
-| 로그인 | Supabase `used_passages` 테이블 (디바이스 동기화) |
-
-로그인 시 익명 시절 localStorage 기록이 자동으로 Postgres 로 마이그레이션됩니다.
+사용 기록("사용함" 토글)은 브라우저 `localStorage`(`bible.used_passages`)에 저장됩니다.
+서버·DB·로그인 없이 기기 단위로 동작하며, 모든 단락을 사용하면 자동 초기화됩니다.
 
 ### 단락 분할 방식 (하이브리드)
 
@@ -103,7 +99,7 @@ LLM의 주제 이해력은 살리되, **길이 일관성·폴백·필러 제거�
 4. **MIN 강제** — 장르 하한 미만 단락을 centroid 코사인이 가까운 이웃과 병합 (시가서는 단독 절 허용)
 5. **메타 백필** — 분할/병합된 단락만 메타데이터 재생성
 
-장르별 길이 한계(예: 시가서 1–6 / 복음서 3–9 / 역사서 4–11절)로 **최대 11절**, 통째-장 폴백 0, 장르 한계 준수율 98–100%. 단락 영구 식별자는 `{book_en}:{chapter}:{verse_start}-{verse_end}` 형식이며 DB·localStorage·클라이언트 모두 같은 ID로 참조합니다. 각 단락에는 감정/필요 태그(`emotion_tags`·`need_tags`)도 부여됩니다.
+장르별 길이 한계(예: 시가서 1–6 / 복음서 3–9 / 역사서 4–11절)로 **최대 11절**, 통째-장 폴백 0, 장르 한계 준수율 98–100%. 단락 영구 식별자는 `{book_en}:{chapter}:{verse_start}-{verse_end}` 형식이며 localStorage·클라이언트 모두 같은 ID로 참조합니다. 각 단락에는 감정/필요 태그(`emotion_tags`·`need_tags`)도 부여됩니다.
 
 ### 데이터 사전 생성 — 전체 재생성 순서
 
@@ -143,21 +139,9 @@ npm install
 `.env.local` 생성:
 ```
 GEMINI_API_KEY=your_key_here
-
-# 랜덤 추천 + 인증 (선택; 없으면 익명 모드로 동작)
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
-> **Supabase는 완전 선택**입니다. 키가 없으면 인증 UI는 숨겨지고 검색 + localStorage 기반 랜덤 추천이 그대로 동작합니다(앱이 크래시되지 않음). 검색만 쓰려면 `GEMINI_API_KEY`만 있으면 됩니다.
-
-Supabase 사용 시:
-
-1. 프로젝트 생성 후 SQL 에디터에 `supabase/migrations/0001_used_passages.sql` 적용
-2. Authentication → Providers 에서 Google(또는 다른 provider) 활성화
-3. Authentication → URL Configuration → Redirect URLs 에
-   `http://localhost:3000/auth/callback` (및 배포 URL) 추가
-4. 추가 provider 는 `src/lib/auth/providers.ts` 한 곳에 항목 추가
+> 필요한 환경변수는 **`GEMINI_API_KEY` 하나**입니다. 인증·DB 없이 검색 + localStorage 기반 랜덤 추천이 동작합니다.
 
 ```bash
 npm run dev   # http://localhost:3000
@@ -193,9 +177,4 @@ python3 scripts/generate_embeddings.py --target passage --quant fp16
 Vercel 대시보드 → Settings → Environment Variables:
 ```
 GEMINI_API_KEY=your_key_here
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
-
-Supabase Authentication → URL Configuration 에 배포 URL 의 콜백 경로
-(`https://<deploy-url>/auth/callback`) 도 추가해야 OAuth 로그인이 동작합니다.

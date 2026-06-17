@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -9,7 +9,6 @@ import {
   getUsedPassagesStore,
   type RandomPassageResponse,
 } from "@/lib/usedPassagesStore";
-import { createClient } from "@/lib/supabase/client";
 import { RandomPassageCard } from "@/components/RandomPassageCard";
 import { SearchPassageCard, type SearchPassage } from "@/components/SearchPassageCard";
 
@@ -57,25 +56,9 @@ export default function Home() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Supabase 구성 여부는 렌더 시점에 동기 확정 — 효과 내 setState(cascading render) 회피.
-  const [supabase] = useState(() => createClient());
-  const [authenticated, setAuthenticated] = useState(false);
-  const [authLoaded, setAuthLoaded] = useState(supabase === null); // 미설정이면 즉시 완료(익명)
   const [random, setRandom] = useState<RandomPassageResponse | null>(null);
   const [randomLoading, setRandomLoading] = useState(false);
   const [randomError, setRandomError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!supabase) return; // 미설정 — 익명 모드로 동작.
-    supabase.auth.getUser().then(({ data }) => {
-      setAuthenticated(!!data.user);
-      setAuthLoaded(true);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthenticated(!!session?.user);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, [supabase]);
 
   const fetchRandom = useCallback(async () => {
     setRandomLoading(true);
@@ -83,7 +66,7 @@ export default function Home() {
     setResults(null);
     setError(null);
     try {
-      const store = getUsedPassagesStore(authenticated);
+      const store = getUsedPassagesStore();
       const data = await store.fetchRandom();
       setRandom(data);
     } catch (e) {
@@ -91,14 +74,14 @@ export default function Home() {
     } finally {
       setRandomLoading(false);
     }
-  }, [authenticated]);
+  }, []);
 
   const togglePassageUsed = useCallback(
     async (passage_id: string, used: boolean) => {
-      const store = getUsedPassagesStore(authenticated);
+      const store = getUsedPassagesStore();
       await store.toggle(passage_id, used);
     },
-    [authenticated],
+    [],
   );
 
   const search = useCallback(async (q: string) => {
@@ -210,7 +193,7 @@ export default function Home() {
           <div className="flex items-center gap-2 mb-8">
             <button
               onClick={fetchRandom}
-              disabled={randomLoading || !authLoaded}
+              disabled={randomLoading}
               className="inline-flex items-center gap-1.5 text-[0.78rem] px-3 py-1.5 rounded-full border border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:border-empathy hover:-translate-y-px active:scale-[0.98] transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] disabled:opacity-50"
             >
               {randomLoading ? (

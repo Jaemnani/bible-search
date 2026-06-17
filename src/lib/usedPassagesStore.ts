@@ -1,11 +1,10 @@
 /**
- * 사용된 단락(used passages) 추상화 — 익명/로그인 모두 같은 인터페이스로 사용.
+ * 사용된 단락(used passages) 저장 — 익명 전용.
  *
- * - 익명: localStorage 에 passage_id 목록 저장. fetchRandom 때 used_ids 동봉.
- *         toggle 은 localStorage 만 갱신 (서버 호출 없음).
- * - 로그인: 서버가 DB 에서 used 를 읽고 자동 제외. toggle 은 /api/random/toggle 호출.
- *
- * was_reset === true 가 응답에 포함되면 클라이언트는 localStorage 도 비운다.
+ * 사용 기록은 브라우저 localStorage(`bible.used_passages`)에 보관한다.
+ * - fetchRandom: localStorage 의 used_ids 를 동봉해 /api/random 호출(서버가 제외 후 1건 추천).
+ * - toggle: localStorage 만 갱신(서버 호출 없음).
+ * - was_reset === true 응답 시 localStorage 를 비운다.
  */
 
 export interface RandomPassageResponse {
@@ -63,14 +62,6 @@ function clearLocal(): void {
   localStorage.removeItem(LOCAL_KEY);
 }
 
-export function getLocalUsedIds(): string[] {
-  return readLocal();
-}
-
-export function clearLocalUsedIds(): void {
-  clearLocal();
-}
-
 class AnonymousStore implements UsedPassagesStore {
   async fetchRandom(): Promise<RandomPassageResponse> {
     const used_ids = readLocal();
@@ -100,38 +91,6 @@ class AnonymousStore implements UsedPassagesStore {
   }
 }
 
-class AuthedStore implements UsedPassagesStore {
-  async fetchRandom(): Promise<RandomPassageResponse> {
-    const res = await fetch("/api/random", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error ?? "랜덤 추천을 불러오지 못했습니다.");
-    }
-    return res.json();
-  }
-
-  async toggle(passage_id: string, used: boolean): Promise<void> {
-    const res = await fetch("/api/random/toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passage_id, used }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error ?? "사용 상태를 갱신하지 못했습니다.");
-    }
-  }
-
-  async isUsed(_passage_id: string): Promise<boolean> {
-    // 로그인 상태에서는 fetchRandom 응답의 is_used 를 신뢰; 단독 조회 미지원.
-    return false;
-  }
-}
-
-export function getUsedPassagesStore(authenticated: boolean): UsedPassagesStore {
-  return authenticated ? new AuthedStore() : new AnonymousStore();
+export function getUsedPassagesStore(): UsedPassagesStore {
+  return new AnonymousStore();
 }

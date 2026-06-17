@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow } from "next/font/google";
 import "./globals.css";
-import { AuthBadge } from "@/components/AuthBadge";
 
 // DESIGN.md display family — Barlow (Latin), CJK falls back to Pretendard
 const barlow = Barlow({
@@ -31,9 +30,6 @@ export default function RootLayout({
   return (
     <html lang="ko" className={barlow.variable}>
       <body>
-        <div className="fixed top-3 right-4 z-20">
-          <AuthBadge />
-        </div>
         {children}
       </body>
     </html>
