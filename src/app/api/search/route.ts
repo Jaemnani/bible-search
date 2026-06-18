@@ -8,6 +8,10 @@ import {
   type Passage,
 } from "@/lib/passages";
 
+// Gemini 호출(쿼리확장→임베딩→리랭킹)이 순차라 콜드스타트 데이터 로드까지 겹치면
+// 함수 기본 타임아웃(Hobby 10s)을 넘겨 504가 난다. 최대 실행시간을 상향(Hobby 최대 60s).
+export const maxDuration = 60;
+
 interface QueryExpansion {
   emotions: string[];
   biblical_keywords: string[];
