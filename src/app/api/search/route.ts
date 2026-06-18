@@ -7,10 +7,15 @@ import {
   type BibleVerse,
   type Passage,
 } from "@/lib/passages";
+import { rateLimit, clientIp } from "@/lib/rateLimit";
 
 // Gemini 호출(쿼리확장→임베딩→리랭킹)이 순차라 콜드스타트 데이터 로드까지 겹치면
 // 함수 기본 타임아웃(Hobby 10s)을 넘겨 504가 난다. 최대 실행시간을 상향(Hobby 최대 60s).
 export const maxDuration = 60;
+
+// 검색은 유료 Gemini를 3회 호출 → 비용 남용 방지로 IP당 분당 15회로 제한.
+const SEARCH_RATE_LIMIT = 15;
+const RATE_WINDOW_MS = 60_000;
 
 interface QueryExpansion {
   emotions: string[];
@@ -514,6 +519,15 @@ function selectAnchor(
 // --- API Route ---
 export async function POST(req: NextRequest) {
   try {
+    // 비용 남용/DoS 방지 — IP당 분당 한도 초과 시 429.
+    const rl = rateLimit(`search:${clientIp(req)}`, SEARCH_RATE_LIMIT, RATE_WINDOW_MS);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+      );
+    }
+
     const body = await req.json();
     const userQuery: string = (body.query ?? "").trim();
 

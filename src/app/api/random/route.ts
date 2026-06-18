@@ -4,13 +4,24 @@ import {
   loadPassageIdSet,
   hydratePassage,
 } from "@/lib/passages";
+import { rateLimit, clientIp } from "@/lib/rateLimit";
 
 const MAX_USED_IDS = 10000;
+const RANDOM_RATE_LIMIT = 60; // 정적 데이터만 읽어 가벼움 → 분당 60회
+const RATE_WINDOW_MS = 60_000;
 
 // 익명 전용: 사용 기록은 클라이언트 localStorage 가 보유하고, 요청 본문 used_ids 로 전달된다.
 // (로그인/DB 경로는 제거 — Supabase 미사용.)
 export async function POST(req: NextRequest) {
   try {
+    const rl = rateLimit(`random:${clientIp(req)}`, RANDOM_RATE_LIMIT, RATE_WINDOW_MS);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+      );
+    }
+
     const passages = loadPassages();
     if (passages.length === 0) {
       return NextResponse.json(
