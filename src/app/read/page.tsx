@@ -12,6 +12,7 @@ import { DrawingCanvas } from "@/components/reader/DrawingCanvas";
 import { AISheet } from "@/components/reader/AISheet";
 import { ListenBar } from "@/components/reader/ListenBar";
 import { MediaSheet } from "@/components/reader/MediaSheet";
+import { SyncBadge } from "@/components/reader/SyncBadge";
 import {
   loadHighlights, loadNotes, loadDrawings, saveHighlights, saveNotes, saveDrawings,
   loadSettings, saveSettings, loadPosition, savePosition, exportMarkdown,
@@ -204,6 +205,7 @@ export default function ReadPage() {
           {cur ? `${cur.book_ko} ${cur.chapter}장` : "불러오는 중…"}
         </button>
         <div className="ml-auto flex items-center gap-1">
+          <SyncBadge />
           <button onClick={() => { if (verses.length) { setSelKey(null); setListenIdx(0); } }} className="rounded-md p-2 hover:bg-black/5" title="말씀 듣기"><Headphones size={17} /></button>
           <button onClick={() => setSearchOpen(true)} className="rounded-md p-2 hover:bg-black/5" title="검색"><Search size={17} /></button>
           <button onClick={() => setSetOpen(true)} className="rounded-md p-2 hover:bg-black/5" title="설정"><Settings2 size={17} /></button>
