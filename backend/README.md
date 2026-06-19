@@ -4,8 +4,10 @@
 NAS에서 호스팅. `auction/deploy/synology` 스택 재사용. 본문/검색/AI는 별도 App API(웹 repo)가 담당.
 
 ## 구성
-- `db` Postgres 16 · `rest` PostgREST(`/rest/v1/*`) · `storage` MinIO(`/storage/*`) · `proxy` Caddy(`:8081`)
+- `db` Postgres 16 · `rest` PostgREST(`/rest/v1/*`) · `auth` GoTrue(`/auth/v1/*`) · `storage` MinIO(`/storage/*`) · `proxy` Caddy(`:8081`)
 - 포트는 auction(8080/9000/9001/5050)과 안 겹치게: **proxy 8081 · MinIO 9100/9101 · pgAdmin 5051**
+- 인증: GoTrue 가 동일 `JWT_SECRET` 으로 `{role:authenticated, sub:<uuid>}` 토큰 발급 → PostgREST 검증 + RLS `auth.uid()`.
+  supabase-js 가 `${SUPABASE_URL}/auth/v1/*`(로그인)·`/rest/v1/*`(데이터) 호출. OAuth(구글/애플)는 `.env` 에서 활성화.
 
 ## 셋업
 ```bash
@@ -48,8 +50,9 @@ curl -s -o /dev/null -w "%{http_code}\n" http://<NAS_IP>:8081/health            
 | `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | 낙서·오디오 업로드 | 서버 전용 |
 | `STORAGE_PUBLIC_URL` | `https://<DOMAIN>/storage` | 공개 |
 
-## 남은 코어 (인증 제공자 결정 후)
-- **인증**: GoTrue self-host(동일 JWT_SECRET) vs 호스티드(JWKS) — 로그인 사용자 JWT 발급.
-  RLS/스키마는 `auth.uid()` 기준이라 제공자만 정하면 그대로 동작.
-- **동기화 클라이언트**: 웹/네이티브가 로컬 레코드를 PostgREST 로 push/pull(updated_at LWW + deleted tombstone).
+## 남은 코어
+- **동기화 클라이언트**(다음 슬라이스): 웹/네이티브가 로그인 토큰으로 로컬 레코드를 PostgREST 로
+  push/pull(updated_at LWW + deleted tombstone). supabase-js `createClient(SUPABASE_URL, ANON_KEY)`
+  로 `.auth`(GoTrue) + `.from()`(PostgREST) 사용.
+- **OAuth 설정**: 구글/애플 클라이언트 키 발급 → `.env` 활성화 + redirect URL 등록. iOS 는 Apple 필수.
 - 백업: `pg_dump` + MinIO 볼륨(docs 02/06).

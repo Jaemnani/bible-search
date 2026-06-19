@@ -48,6 +48,40 @@ services:
     mem_limit: 256m
     networks: [internal]
 
+  # 사용자 인증 (Supabase GoTrue) — 동일 JWT_SECRET 으로 토큰 발급 → PostgREST 검증 + RLS auth.uid().
+  # supabase-js 가 ${SUPABASE_URL}/auth/v1/* 로 호출(Caddy 라우팅).
+  auth:
+    image: supabase/gotrue:v2.177.0
+    container_name: bible-auth
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      PORT: "9999"
+      GOTRUE_DB_DRIVER: postgres
+      # GoTrue 가 auth 스키마에 자체 테이블(users 등) 마이그레이션. postgres 로 접속(자가호스트).
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres?search_path=auth
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_DISABLE_SIGNUP: "false"
+      # SMTP 미설정 시 이메일 자동확인(개발용). 운영은 SMTP 설정 권장.
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      # 외부 OAuth — .env 에서 활성화(iOS 공개앱은 Apple 필수). redirect 는 클라 콜백.
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${GOOGLE_ENABLED:-false}
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_SECRET:-}
+      GOTRUE_EXTERNAL_APPLE_ENABLED: ${APPLE_ENABLED:-false}
+      GOTRUE_EXTERNAL_APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_APPLE_SECRET: ${APPLE_SECRET:-}
+    mem_limit: 256m
+    networks: [internal]
+
   storage:
     image: minio/minio:latest
     container_name: bible-minio
