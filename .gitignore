@@ -44,6 +44,8 @@ yarn-error.log*
 !/public/data/*.bin
 # 단락 사전생성 체크포인트 (런타임 산출물 — commit 제외)
 /public/data/passage_progress.json
+# 초성 인덱스(파생물 4MB+ — 런타임 chosung.ts로 계산, scripts/build_indexes.py로 재생성)
+/public/data/verse_chosung.json
 
 # vercel
 .vercel
