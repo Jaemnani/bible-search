@@ -66,3 +66,10 @@ embeddings_src/
 
 # 크롤러 런타임 로그
 /crawler/data/
+
+# iOS 빌드 산출물 + XcodeGen 생성 프로젝트(project.yml 이 소스of truth)
+/ios/.build-xcode/
+/ios/**/.build/
+/ios/BibleReader.xcodeproj/
+/ios/DerivedData/
+*.xcuserstate
