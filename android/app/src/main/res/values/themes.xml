@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 가 UI 를 그리므로 액티비티 테마는 액션바 없는 기본 테마면 충분(AppCompat 비의존). -->
+    <style name="Theme.BibleReader" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
