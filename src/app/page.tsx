@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -147,6 +148,12 @@ export default function Home() {
           <p className="text-sm text-muted-foreground tracking-widest">
             성경구절 의미 검색
           </p>
+          <Link
+            href="/read"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3.5 py-1.5 text-[0.8rem] text-primary transition-colors hover:bg-primary/10"
+          >
+            <BookOpen size={14} /> 성경 리더 열기
+          </Link>
           <Separator className="mt-5 bg-border/50" />
         </header>
 
