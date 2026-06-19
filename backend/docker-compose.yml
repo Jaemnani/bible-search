@@ -1,0 +1,97 @@
+# bible-reader self-hosted backend — NAS(Synology 등) Docker
+#
+# 구성: Postgres / PostgREST(supabase-js 호환 REST) / MinIO(낙서·오디오·썸네일) / Caddy(라우팅)
+# auction/deploy/synology 스택 재사용. 포트는 auction(8080/9000/9001/5050)과 겹치지 않게 +오프셋.
+#
+# 실행:
+#   cp .env.example .env   # 비밀번호 채우기 (README 참고)
+#   docker compose up -d
+#   bash apply-migrations.sh
+#   docker compose --profile admin up -d pgadmin   # 필요할 때만
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: bible-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - ./volumes/db/data:/var/lib/postgresql/data
+      # DB 최초 1회 자동 실행(데이터 비었을 때만) — 역할 생성(마이그레이션 선행).
+      - ./bootstrap:/docker-entrypoint-initdb.d:ro
+    shm_size: 256mb
+    mem_limit: 1g
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: bible-rest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${AUTHENTICATOR_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_MAX_ROWS: "1000"
+      PGRST_DB_POOL: "10"
+    mem_limit: 256m
+    networks: [internal]
+
+  storage:
+    image: minio/minio:latest
+    container_name: bible-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./volumes/storage:/data
+    mem_limit: 512m
+    ports:
+      - "9100:9000"   # S3 API (LAN) — 클라/서버 업로드 + Tunnel
+      - "9101:9001"   # MinIO 콘솔 (LAN 관리용)
+    networks: [internal]
+
+  proxy:
+    image: caddy:2
+    container_name: bible-proxy
+    restart: unless-stopped
+    depends_on: [rest]
+    ports:
+      - "8081:80"     # /rest/v1/* , /storage/* , /health
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./volumes/caddy/data:/data
+      - ./volumes/caddy/config:/config
+    mem_limit: 128m
+    networks: [internal]
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: bible-pgadmin
+    restart: unless-stopped
+    profiles: ["admin"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5051:80"     # LAN 내부만
+    mem_limit: 300m
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,17 @@
+# Caddy — supabase-js 호환 경로 라우팅 (Supabase Kong 대체)
+#   /rest/v1/*  → PostgREST   (supabase-js 가 ${SUPABASE_URL}/rest/v1/<table> 호출)
+#   /storage/*  → MinIO        (낙서·오디오·썸네일 공개 GET — {bucket}/{key})
+# TLS 는 외부 역방향 프록시/Cloudflare Tunnel 이 종단 → Caddy 는 평문 :80.
+
+:80 {
+	handle_path /rest/v1/* {
+		reverse_proxy rest:3000
+	}
+	handle_path /storage/* {
+		reverse_proxy storage:9000
+	}
+	respond /health 200
+	handle {
+		respond "bible backend — use /rest/v1/* or /storage/*" 404
+	}
+}

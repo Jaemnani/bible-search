@@ -60,3 +60,6 @@ __pycache__/
 
 # float32 임베딩 사이드카 (양자화 재실험용, 배포 제외)
 embeddings_src/
+
+# backend self-host 런타임 볼륨(DB/스토리지/캐디 데이터)
+/backend/volumes/
