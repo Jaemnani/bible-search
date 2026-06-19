@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   BookOpen, Search, Settings2, Download, ChevronLeft, ChevronRight,
-  X, Highlighter, NotebookPen, Brush, Sparkles, Scale, Video, Loader2, Trash2,
+  X, Highlighter, NotebookPen, Brush, Sparkles, Scale, Video, Loader2, Trash2, Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DrawingCanvas } from "@/components/reader/DrawingCanvas";
 import { AISheet } from "@/components/reader/AISheet";
+import { ListenBar } from "@/components/reader/ListenBar";
 import {
   loadHighlights, loadNotes, loadDrawings, saveHighlights, saveNotes, saveDrawings,
   loadSettings, saveSettings, loadPosition, savePosition, exportMarkdown,
@@ -52,6 +53,7 @@ export default function ReadPage() {
   const [memoEdit, setMemoEdit] = useState<{ key: string; meta: VerseMeta; value: string } | null>(null);
   const [drawEdit, setDrawEdit] = useState<{ key: string; meta: VerseMeta; png?: string } | null>(null);
   const [aiSheet, setAiSheet] = useState<{ mode: "ask" | "cross"; verse: ReaderVerse } | null>(null);
+  const [listenIdx, setListenIdx] = useState<number | null>(null); // null = 듣기 비활성
 
   const [navBook, setNavBook] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -96,6 +98,7 @@ export default function ReadPage() {
     if (!cur) return;
     setLoadingCh(true);
     setSelKey(null);
+    setListenIdx(null); // 장 이동 시 듣기 종료
     fetch(`/api/reader/chapter?book=${encodeURIComponent(cur.book_en)}&chapter=${cur.chapter}`)
       .then((r) => r.json())
       .then((d) => { setVerses(d.verses ?? []); savePosition({ book_en: cur.book_en, chapter: cur.chapter }); })
@@ -199,6 +202,7 @@ export default function ReadPage() {
           {cur ? `${cur.book_ko} ${cur.chapter}장` : "불러오는 중…"}
         </button>
         <div className="ml-auto flex items-center gap-1">
+          <button onClick={() => { if (verses.length) { setSelKey(null); setListenIdx(0); } }} className="rounded-md p-2 hover:bg-black/5" title="말씀 듣기"><Headphones size={17} /></button>
           <button onClick={() => setSearchOpen(true)} className="rounded-md p-2 hover:bg-black/5" title="검색"><Search size={17} /></button>
           <button onClick={() => setSetOpen(true)} className="rounded-md p-2 hover:bg-black/5" title="설정"><Settings2 size={17} /></button>
           <button onClick={doExport} className="rounded-md p-2 hover:bg-black/5" title="노트 .md 내보내기"><Download size={17} /></button>
@@ -241,8 +245,8 @@ export default function ReadPage() {
         )}
       </main>
 
-      {/* Verse action bar */}
-      {selVerse && (
+      {/* Verse action bar (듣기 중에는 ListenBar 우선) */}
+      {selVerse && listenIdx === null && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-white p-3 shadow-2xl">
           <div className="mx-auto max-w-2xl">
             <div className="mb-2 flex items-center justify-between text-xs text-gray-500">
@@ -389,6 +393,22 @@ export default function ReadPage() {
           initialPng={drawEdit.png}
           onSave={saveDrawing}
           onClose={() => setDrawEdit(null)}
+        />
+      )}
+
+      {/* 말씀 듣기 (P4 껍데기) — 메모하며 듣기 연동 */}
+      {listenIdx !== null && verses[listenIdx] && (
+        <ListenBar
+          verse={verses[listenIdx]}
+          hasPrev={listenIdx > 0}
+          hasNext={listenIdx < verses.length - 1}
+          onPrev={() => setListenIdx((i) => (i! > 0 ? i! - 1 : i))}
+          onNext={() => setListenIdx((i) => (i! < verses.length - 1 ? i! + 1 : i))}
+          onClose={() => setListenIdx(null)}
+          onMemo={() => {
+            const v = verses[listenIdx];
+            setMemoEdit({ key: v.key, meta: metaOf(v), value: notes[v.key]?.md ?? "" });
+          }}
         />
       )}
 
