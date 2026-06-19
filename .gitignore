@@ -63,3 +63,6 @@ embeddings_src/
 
 # backend self-host 런타임 볼륨(DB/스토리지/캐디 데이터)
 /backend/volumes/
+
+# 크롤러 런타임 로그
+/crawler/data/

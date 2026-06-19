@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { DrawingCanvas } from "@/components/reader/DrawingCanvas";
 import { AISheet } from "@/components/reader/AISheet";
 import { ListenBar } from "@/components/reader/ListenBar";
+import { MediaSheet } from "@/components/reader/MediaSheet";
 import {
   loadHighlights, loadNotes, loadDrawings, saveHighlights, saveNotes, saveDrawings,
   loadSettings, saveSettings, loadPosition, savePosition, exportMarkdown,
@@ -54,6 +55,7 @@ export default function ReadPage() {
   const [drawEdit, setDrawEdit] = useState<{ key: string; meta: VerseMeta; png?: string } | null>(null);
   const [aiSheet, setAiSheet] = useState<{ mode: "ask" | "cross"; verse: ReaderVerse } | null>(null);
   const [listenIdx, setListenIdx] = useState<number | null>(null); // null = 듣기 비활성
+  const [mediaVerse, setMediaVerse] = useState<ReaderVerse | null>(null);
 
   const [navBook, setNavBook] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -275,7 +277,7 @@ export default function ReadPage() {
               )}
               <Button size="sm" variant="outline" onClick={() => setAiSheet({ mode: "ask", verse: selVerse })}><Sparkles size={14} /> AI 질문</Button>
               <Button size="sm" variant="outline" onClick={() => setAiSheet({ mode: "cross", verse: selVerse })}><Scale size={14} /> AI 교차검증</Button>
-              <Button size="sm" variant="outline" disabled title="다음 단계(P5)"><Video size={14} /> 설교·책</Button>
+              <Button size="sm" variant="outline" onClick={() => setMediaVerse(selVerse)}><Video size={14} /> 설교·책</Button>
             </div>
           </div>
         </div>
@@ -409,6 +411,14 @@ export default function ReadPage() {
             const v = verses[listenIdx];
             setMemoEdit({ key: v.key, meta: metaOf(v), value: notes[v.key]?.md ?? "" });
           }}
+        />
+      )}
+
+      {/* 구절별 설교·책 (P5 껍데기) */}
+      {mediaVerse && (
+        <MediaSheet
+          verse={{ key: mediaVerse.key, book_ko: mediaVerse.book_ko, chapter: mediaVerse.chapter, verse: mediaVerse.verse }}
+          onClose={() => setMediaVerse(null)}
         />
       )}
 
