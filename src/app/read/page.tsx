@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DrawingCanvas } from "@/components/reader/DrawingCanvas";
+import { AISheet } from "@/components/reader/AISheet";
 import {
   loadHighlights, loadNotes, loadDrawings, saveHighlights, saveNotes, saveDrawings,
   loadSettings, saveSettings, loadPosition, savePosition, exportMarkdown,
@@ -50,6 +51,7 @@ export default function ReadPage() {
   const [setOpen, setSetOpen] = useState(false);
   const [memoEdit, setMemoEdit] = useState<{ key: string; meta: VerseMeta; value: string } | null>(null);
   const [drawEdit, setDrawEdit] = useState<{ key: string; meta: VerseMeta; png?: string } | null>(null);
+  const [aiSheet, setAiSheet] = useState<{ mode: "ask" | "cross"; verse: ReaderVerse } | null>(null);
 
   const [navBook, setNavBook] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -267,8 +269,8 @@ export default function ReadPage() {
                   <Trash2 size={14} /> 그림 삭제
                 </Button>
               )}
-              <Button size="sm" variant="outline" disabled title="다음 단계(P3)"><Sparkles size={14} /> AI 질문</Button>
-              <Button size="sm" variant="outline" disabled title="다음 단계(P3)"><Scale size={14} /> AI 교차검증</Button>
+              <Button size="sm" variant="outline" onClick={() => setAiSheet({ mode: "ask", verse: selVerse })}><Sparkles size={14} /> AI 질문</Button>
+              <Button size="sm" variant="outline" onClick={() => setAiSheet({ mode: "cross", verse: selVerse })}><Scale size={14} /> AI 교차검증</Button>
               <Button size="sm" variant="outline" disabled title="다음 단계(P5)"><Video size={14} /> 설교·책</Button>
             </div>
           </div>
@@ -387,6 +389,15 @@ export default function ReadPage() {
           initialPng={drawEdit.png}
           onSave={saveDrawing}
           onClose={() => setDrawEdit(null)}
+        />
+      )}
+
+      {/* AI 질문 / 교차검증 (P3 껍데기) */}
+      {aiSheet && (
+        <AISheet
+          mode={aiSheet.mode}
+          verse={{ key: aiSheet.verse.key, book_ko: aiSheet.verse.book_ko, chapter: aiSheet.verse.chapter, verse: aiSheet.verse.verse, ko: aiSheet.verse.ko }}
+          onClose={() => setAiSheet(null)}
         />
       )}
     </div>
