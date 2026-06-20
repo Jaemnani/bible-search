@@ -12,11 +12,14 @@ NAS에서 호스팅. `auction/deploy/synology` 스택 재사용. 본문/검색/A
 ## 셋업
 ```bash
 cp .env.example .env            # 비밀번호 채우기: openssl rand -base64 24 (JWT_SECRET 은 -base64 48)
-# bootstrap 의 authenticator 비번을 .env 와 동기화:
-sed -i '' "s/CHANGE_ME_SAME_AS_ENV/$(grep ^AUTHENTICATOR_PASSWORD= .env | cut -d= -f2-)/" bootstrap/00_roles.sql
+# bootstrap 의 authenticator 비번을 .env 와 동기화 (NAS=Linux: sed -i, macOS: sed -i ''):
+sed -i "s/CHANGE_ME_SAME_AS_ENV/$(grep ^AUTHENTICATOR_PASSWORD= .env | cut -d= -f2-)/" bootstrap/00_roles.sql
+
+# bind-mount 디렉터리 먼저 생성 (compose 가 자동 생성 안 함 — git 제외됨. 없으면 "Bind mount failed")
+mkdir -p volumes/db/data volumes/storage volumes/caddy/data volumes/caddy/config
 
 docker compose up -d
-docker compose ps                # db/rest/storage/proxy 정상 확인
+docker compose ps                # db/auth/rest/storage/proxy 정상 확인
 bash apply-migrations.sh         # 스키마 + RLS 적용
 
 node gen-keys.mjs "$(grep ^JWT_SECRET= .env | cut -d= -f2-)"   # ANON_KEY / SERVICE_KEY 발급
