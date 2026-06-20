@@ -63,6 +63,9 @@ services:
       GOTRUE_DB_DRIVER: postgres
       # GoTrue 가 auth 스키마에 자체 테이블(users 등) 마이그레이션. postgres 로 접속(자가호스트).
       GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres?search_path=auth
+      # 외부에서 접근할 인증 API 공개 URL(필수). 노출 전엔 LAN 기본값으로 기동만.
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8081}
+      GOTRUE_API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8081}
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: "*"
       GOTRUE_JWT_SECRET: ${JWT_SECRET}
