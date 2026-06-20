@@ -36,6 +36,9 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+# 단, 템플릿(.env.example)은 추적 (시크릿 없음)
+!.env.example
+!**/.env.example
 
 # large data files
 /datas/
