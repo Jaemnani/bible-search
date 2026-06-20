@@ -11,7 +11,7 @@ NAS에서 호스팅. `auction/deploy/synology` 스택 재사용. 본문/검색/A
 
 ## 셋업
 ```bash
-cp .env.example .env            # 비밀번호 채우기: openssl rand -base64 24 (JWT_SECRET 은 -base64 48)
+cp .env.example .env            # DB 비번은 hex!: openssl rand -hex 24 (URL 들어감). JWT_SECRET 만 -base64 48
 # bootstrap 의 authenticator 비번을 .env 와 동기화 (NAS=Linux: sed -i, macOS: sed -i ''):
 sed -i "s/CHANGE_ME_SAME_AS_ENV/$(grep ^AUTHENTICATOR_PASSWORD= .env | cut -d= -f2-)/" bootstrap/00_roles.sql
 
