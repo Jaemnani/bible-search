@@ -63,7 +63,8 @@ services:
       GOTRUE_DB_DRIVER: postgres
       # GoTrue 가 auth 스키마에 자체 테이블(users 등) 마이그레이션. postgres 로 접속(자가호스트).
       # ⚠️ 비밀번호는 URL 에 들어가므로 특수문자 없는 hex 여야 함(base64 의 / + = 는 URL 깨짐 → migrate panic).
-      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      # search_path=auth 필수: 일부 GoTrue 마이그레이션이 비정규화 이름으로 타입/객체 생성(없으면 factor_type 누락).
+      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres?search_path=auth
       GOTRUE_DB_NAMESPACE: auth
       # 외부에서 접근할 인증 API 공개 URL(필수). 노출 전엔 LAN 기본값으로 기동만.
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8081}
