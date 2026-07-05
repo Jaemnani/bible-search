@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   BookOpen, Search, Settings2, Download, ChevronLeft, ChevronRight,
-  X, Highlighter, NotebookPen, Brush, Sparkles, Scale, Video, Loader2, Trash2, Headphones,
+  X, Highlighter, NotebookPen, Brush, Sparkles, Scale, Video, Loader2, Trash2, Headphones, Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,8 +18,9 @@ import {
   loadSettings, saveSettings, loadPosition, savePosition, exportMarkdown,
   HIGHLIGHT_HEX, DEFAULT_SETTINGS,
   type HighlightColor, type HighlightRec, type NoteRec, type DrawingRec,
-  type ReaderSettings, type VerseMeta,
+  type ReaderSettings, type ReaderLang, type VerseMeta,
 } from "@/lib/readerStore";
+import { isChosungQuery, matchesChosung } from "@/lib/chosung";
 
 interface BookMeta {
   book_en: string; book_ko: string; testament: "OT" | "NT"; genre: string;
@@ -31,6 +32,12 @@ interface ReaderVerse {
 interface VerseHit { key: string; book_ko: string; book_en: string; chapter: number; verse: number; ko: string }
 
 const COLORS: HighlightColor[] = ["yellow", "green", "blue", "pink", "orange"];
+// 언어 스위치 순환 순서/라벨 — 한글 → 영어 → 한·영 교대
+const LANGS: { value: ReaderLang; label: string; desc: string }[] = [
+  { value: "ko", label: "한글", desc: "개역개정" },
+  { value: "en", label: "ENG", desc: "NIV" },
+  { value: "koen", label: "한·영", desc: "한글/영어 교대" },
+];
 const THEME_BG: Record<ReaderSettings["theme"], { bg: string; fg: string; sub: string }> = {
   light: { bg: "#ffffff", fg: "#1f2937", sub: "#6b7280" },
   sepia: { bg: "#f4ecd8", fg: "#5b4636", sub: "#8a7355" },
@@ -59,6 +66,8 @@ export default function ReadPage() {
   const [mediaVerse, setMediaVerse] = useState<ReaderVerse | null>(null);
 
   const [navBook, setNavBook] = useState<string | null>(null);
+  const [navFilter, setNavFilter] = useState(""); // 책 이름 초성/본문 필터 (ㅅㅍ → 시편)
+  const [chInput, setChInput] = useState("");     // 장 번호 직접 입력
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<VerseHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -85,6 +94,7 @@ export default function ReadPage() {
       .then((r) => r.json())
       .then((bs: BookMeta[]) => {
         setBooks(bs);
+        if (bs.length === 0) return;
         const pos = loadPosition();
         const start = pos && bs.find((b) => b.book_en === pos.book_en)
           ? { book_en: pos.book_en, chapter: pos.chapter }
@@ -191,6 +201,46 @@ export default function ReadPage() {
     setSettings(next); saveSettings(next);
   }
 
+  // 필터 파싱 — "ㅅㅍ 23" 처럼 뒤에 장 번호를 붙이면 이름/장으로 분리
+  const navParsed = useMemo(() => {
+    const m = navFilter.trim().match(/^(.*?)\s*(\d+)?$/);
+    return { name: (m?.[1] ?? "").trim(), num: m?.[2] ? parseInt(m[2], 10) : null };
+  }, [navFilter]);
+
+  // 책 필터 — 초성 쿼리(ㅅㅍ)는 초성 매칭, 그 외는 한글/영문 이름 부분일치
+  const filteredBooks = useMemo(() => {
+    if (!books) return [];
+    const f = navParsed.name;
+    if (!f) return books;
+    if (isChosungQuery(f)) return books.filter((b) => matchesChosung(f, b.book_ko));
+    const lower = f.toLowerCase();
+    return books.filter((b) => b.book_ko.includes(f) || b.book_en.toLowerCase().includes(lower));
+  }, [books, navParsed.name]);
+
+  // 필터 결과가 하나로 좁혀지면 자동 선택 → 바로 장 번호 입력 가능
+  useEffect(() => {
+    if (navOpen && navParsed.name && filteredBooks.length === 1) {
+      setNavBook(filteredBooks[0].book_en);
+    }
+  }, [navOpen, navParsed.name, filteredBooks]);
+
+  // 필터 입력에서 Enter — "ㅅㅍ 23" 이면 시편 23장으로 바로 이동
+  function submitNavFilter(e: React.FormEvent) {
+    e.preventDefault();
+    if (filteredBooks.length !== 1) return;
+    const bk = filteredBooks[0];
+    if (navParsed.num != null) goTo(bk.book_en, Math.min(Math.max(1, navParsed.num), bk.chapter_count));
+    else setNavBook(bk.book_en);
+  }
+
+  const navBookMeta = navBook ? booksByEn[navBook] : undefined;
+  function submitChapter(e: React.FormEvent) {
+    e.preventDefault();
+    const n = parseInt(chInput, 10);
+    if (!navBook || !navBookMeta || !Number.isInteger(n)) return;
+    goTo(navBook, Math.min(Math.max(1, n), navBookMeta.chapter_count));
+  }
+
   const theme = THEME_BG[settings.theme];
   const selVerse = verses.find((v) => v.key === selKey) ?? null;
 
@@ -199,13 +249,23 @@ export default function ReadPage() {
       {/* Top bar */}
       <header className="sticky top-0 z-30 flex items-center gap-2 border-b px-3 py-2 backdrop-blur"
         style={{ backgroundColor: `${theme.bg}ee`, borderColor: `${theme.sub}33` }}>
-        <Link href="/" className="shrink-0 opacity-70 hover:opacity-100" title="검색 홈"><BookOpen size={18} /></Link>
-        <button onClick={() => { setNavBook(cur?.book_en ?? null); setNavOpen(true); }}
+        <Link href="/" className="shrink-0 opacity-70 hover:opacity-100" title="홈"><BookOpen size={18} /></Link>
+        <button onClick={() => { setNavBook(cur?.book_en ?? null); setNavFilter(""); setChInput(""); setNavOpen(true); }}
           className="flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold hover:bg-black/5">
           {cur ? `${cur.book_ko} ${cur.chapter}장` : "불러오는 중…"}
         </button>
         <div className="ml-auto flex items-center gap-1">
           <SyncBadge />
+          <button
+            onClick={() => {
+              const i = LANGS.findIndex((l) => l.value === settings.lang);
+              patchSettings({ lang: LANGS[(i + 1) % LANGS.length].value });
+            }}
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold hover:bg-black/5"
+            title={`본문 언어 (현재: ${LANGS.find((l) => l.value === settings.lang)?.label})`}>
+            <Languages size={15} />
+            {LANGS.find((l) => l.value === settings.lang)?.label}
+          </button>
           <button onClick={() => { if (verses.length) { setSelKey(null); setListenIdx(0); } }} className="rounded-md p-2 hover:bg-black/5" title="말씀 듣기"><Headphones size={17} /></button>
           <button onClick={() => setSearchOpen(true)} className="rounded-md p-2 hover:bg-black/5" title="검색"><Search size={17} /></button>
           <button onClick={() => setSetOpen(true)} className="rounded-md p-2 hover:bg-black/5" title="설정"><Settings2 size={17} /></button>
@@ -231,10 +291,11 @@ export default function ReadPage() {
                   style={{ backgroundColor: hl ? HIGHLIGHT_HEX[hl.color] : isSel ? `${theme.sub}22` : "transparent",
                     color: hl ? "#1f2937" : undefined, outline: isSel ? `2px solid ${theme.sub}55` : "none" }}>
                   <sup className="mr-1 font-semibold" style={{ color: hl ? "#6b7280" : theme.sub, fontSize: "0.62em" }}>{v.verse}</sup>
-                  <span>{v.ko}</span>
+                  {/* 언어 모드: ko=한글만, en=영어만(없으면 한글 폴백), koen=한글→영어 교대 */}
+                  <span>{settings.lang === "en" ? (v.en || v.ko) : v.ko}</span>
                   {hasNote && <NotebookPen size={12} className="ml-1 inline align-middle text-amber-600" />}
                   {hasDraw && <Brush size={12} className="ml-1 inline align-middle text-sky-600" />}
-                  {settings.showEn && v.en && (
+                  {settings.lang === "koen" && v.en && (
                     <span className="mt-0.5 block italic" style={{ color: theme.sub, fontSize: "0.82em" }}>{v.en}</span>
                   )}
                 </p>
@@ -288,14 +349,26 @@ export default function ReadPage() {
       {/* Nav drawer (book/chapter) */}
       {navOpen && books && (
         <Overlay onClose={() => setNavOpen(false)} title="책 · 장 선택">
+          <form onSubmit={submitNavFilter} className="mb-3">
+            <Input
+              value={navFilter}
+              onChange={(e) => setNavFilter(e.target.value)}
+              autoFocus
+              placeholder="책 필터 — 초성·장 번호 (예: ㅅㅍ 23 → 시편 23장)"
+              className="h-10"
+            />
+          </form>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.4fr]">
-            <div className="max-h-[55vh] overflow-y-auto pr-1">
-              {groupByGenre(books).map(([genre, list]) => (
+            <div className="max-h-[48vh] overflow-y-auto pr-1">
+              {filteredBooks.length === 0 && (
+                <p className="py-6 text-center text-sm text-gray-400">일치하는 책이 없습니다</p>
+              )}
+              {groupByGenre(filteredBooks).map(([genre, list]) => (
                 <div key={genre} className="mb-3">
                   <div className="mb-1 text-[0.7rem] font-semibold uppercase tracking-wide text-gray-400">{genre}</div>
                   <div className="flex flex-wrap gap-1.5">
                     {list.map((b) => (
-                      <button key={b.book_en} onClick={() => setNavBook(b.book_en)}
+                      <button key={b.book_en} onClick={() => { setNavBook(b.book_en); setChInput(""); }}
                         className={`rounded-full border px-2.5 py-1 text-[0.8rem] ${navBook === b.book_en ? "border-primary bg-primary/10 text-primary" : "border-gray-200 text-gray-600 hover:border-gray-400"}`}>
                         {b.book_ko}
                       </button>
@@ -304,13 +377,26 @@ export default function ReadPage() {
                 </div>
               ))}
             </div>
-            <div className="max-h-[55vh] overflow-y-auto">
-              {navBook && (
+            <div className="max-h-[48vh] overflow-y-auto">
+              {navBookMeta && (
                 <>
-                  <div className="mb-2 text-sm font-semibold text-gray-700">{booksByEn[navBook]?.book_ko}</div>
+                  <div className="mb-2 text-sm font-semibold text-gray-700">{navBookMeta.book_ko}</div>
+                  {/* 장 번호 직접 입력 — Enter 로 이동 */}
+                  <form onSubmit={submitChapter} className="mb-2.5 flex gap-2">
+                    <Input
+                      key={navBook}
+                      value={chInput}
+                      onChange={(e) => setChInput(e.target.value.replace(/\D/g, ""))}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder={`장 번호 입력 (1–${navBookMeta.chapter_count})`}
+                      className="h-9 flex-1"
+                    />
+                    <Button type="submit" size="sm" className="h-9 px-4" disabled={!chInput}>이동</Button>
+                  </form>
                   <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
-                    {Array.from({ length: booksByEn[navBook]?.chapter_count ?? 0 }, (_, i) => i + 1).map((c) => (
-                      <button key={c} onClick={() => goTo(navBook, c)}
+                    {Array.from({ length: navBookMeta.chapter_count }, (_, i) => i + 1).map((c) => (
+                      <button key={c} onClick={() => goTo(navBook!, c)}
                         className="rounded-md border border-gray-200 py-1.5 text-sm text-gray-700 hover:border-primary hover:text-primary">
                         {c}
                       </button>
@@ -364,10 +450,18 @@ export default function ReadPage() {
                 ))}
               </div>
             </div>
-            <label className="flex items-center justify-between text-sm text-gray-600">
-              영어(NIV) 함께 보기
-              <input type="checkbox" checked={settings.showEn} onChange={(e) => patchSettings({ showEn: e.target.checked })} className="h-4 w-4" />
-            </label>
+            <div>
+              <div className="mb-1.5 text-sm text-gray-600">본문 언어</div>
+              <div className="flex gap-2">
+                {LANGS.map((l) => (
+                  <button key={l.value} onClick={() => patchSettings({ lang: l.value })}
+                    className={`flex-1 rounded-md border px-3 py-2 text-sm ${settings.lang === l.value ? "border-primary bg-primary/5 text-primary" : "border-gray-200 text-gray-600"}`}>
+                    <span className="block font-medium">{l.label}</span>
+                    <span className="block text-[0.68rem] opacity-70">{l.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </Overlay>
       )}

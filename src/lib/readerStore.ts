@@ -19,10 +19,13 @@ export interface HighlightRec { color: HighlightColor; meta: VerseMeta; updated:
 export interface NoteRec { md: string; meta: VerseMeta; updated: number }
 export interface DrawingRec { png: string; meta: VerseMeta; updated: number }
 
+/** 본문 언어 모드 — ko: 한글만, en: 영어만, koen: 절마다 한글→영어 교대 표시 */
+export type ReaderLang = "ko" | "en" | "koen";
+
 export interface ReaderSettings {
   fontSize: number;            // px
   theme: "light" | "sepia" | "dark";
-  showEn: boolean;
+  lang: ReaderLang;
 }
 export interface ReadingPosition { book_en: string; chapter: number }
 
@@ -34,7 +37,7 @@ const K = {
   position: "bible.reader.position",
 };
 
-export const DEFAULT_SETTINGS: ReaderSettings = { fontSize: 18, theme: "light", showEn: false };
+export const DEFAULT_SETTINGS: ReaderSettings = { fontSize: 18, theme: "light", lang: "ko" };
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -62,7 +65,14 @@ export const saveHighlights = (m: Record<string, HighlightRec>) => write(K.highl
 export const saveNotes = (m: Record<string, NoteRec>) => write(K.notes, m);
 export const saveDrawings = (m: Record<string, DrawingRec>) => write(K.drawings, m);
 
-export const loadSettings = (): ReaderSettings => ({ ...DEFAULT_SETTINGS, ...read(K.settings, {}) });
+export const loadSettings = (): ReaderSettings => {
+  // 구버전 showEn(boolean) → lang 마이그레이션
+  const stored = read<Partial<ReaderSettings> & { showEn?: boolean }>(K.settings, {});
+  const { showEn, ...rest } = stored;
+  const s: ReaderSettings = { ...DEFAULT_SETTINGS, ...rest };
+  if (!rest.lang && showEn) s.lang = "koen";
+  return s;
+};
 export const saveSettings = (s: ReaderSettings) => write(K.settings, s);
 export const loadPosition = (): ReadingPosition | null => read<ReadingPosition | null>(K.position, null);
 export const savePosition = (p: ReadingPosition) => write(K.position, p);
