@@ -32,11 +32,11 @@ export function getChapter(bookEn: string, chapter: number): ReaderVerse[] {
     .map(toReaderVerse);
 }
 
-// --- 자음(초성) + 본문 검색 인덱스 (로드 시 1회 캐시) ---
+// --- 자음(초성) + 본문 검색 인덱스 (로드 시 1회 캐시, 공백 제거 상태로 저장) ---
 let chosungIndex: string[] | null = null;
 function getChosungIndex(): string[] {
   if (chosungIndex) return chosungIndex;
-  chosungIndex = loadBible().map((v) => toChosung(v.ko));
+  chosungIndex = loadBible().map((v) => toChosung(v.ko).replace(/\s+/g, ""));
   return chosungIndex;
 }
 
@@ -61,7 +61,7 @@ export function searchVerses(query: string, limit = 50): VerseHit[] {
     const qc = toChosung(q).replace(/\s+/g, "");
     if (!qc) return [];
     for (let i = 0; i < bible.length && hits.length < limit; i++) {
-      if (idx[i].replace(/\s+/g, "").includes(qc)) hits.push(toHit(bible[i]));
+      if (idx[i].includes(qc)) hits.push(toHit(bible[i]));
     }
     return hits;
   }
@@ -70,12 +70,12 @@ export function searchVerses(query: string, limit = 50): VerseHit[] {
   for (let i = 0; i < bible.length && hits.length < limit; i++) {
     if (bible[i].ko.includes(q)) hits.push(toHit(bible[i]));
   }
-  if (hits.length < limit) {
+  const qc = toChosung(q).replace(/\s+/g, "");
+  if (hits.length < limit && qc) {
     const idx = getChosungIndex();
-    const qc = toChosung(q).replace(/\s+/g, "");
     const seen = new Set(hits.map((h) => h.key));
     for (let i = 0; i < bible.length && hits.length < limit; i++) {
-      if (qc && idx[i].replace(/\s+/g, "").includes(qc) && !seen.has(bible[i].key)) {
+      if (idx[i].includes(qc) && !seen.has(bible[i].key)) {
         hits.push(toHit(bible[i]));
       }
     }
