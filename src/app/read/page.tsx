@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  BookOpen, Search, Settings2, Download, ChevronLeft, ChevronRight,
+  BookOpen, Search, Settings2, Download, ChevronLeft, ChevronRight, ChevronDown,
   X, Highlighter, NotebookPen, Brush, Sparkles, Scale, Video, Loader2, Trash2, Headphones, Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,7 @@ export default function ReadPage() {
   const [navBook, setNavBook] = useState<string | null>(null);
   const [navFilter, setNavFilter] = useState(""); // 책 이름 초성/본문 필터 (ㅅㅍ → 시편)
   const [chInput, setChInput] = useState("");     // 장 번호 직접 입력
+  const [openGenres, setOpenGenres] = useState<Set<string>>(new Set()); // 펼쳐진 카테고리
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<VerseHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -233,6 +234,22 @@ export default function ReadPage() {
     else setNavBook(bk.book_en);
   }
 
+  function toggleGenre(g: string) {
+    setOpenGenres((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
+  }
+
+  // 선택된 책의 카테고리는 항상 펼쳐 보이게 (필터 자동선택 포함)
+  useEffect(() => {
+    if (!navBook) return;
+    const g = booksByEn[navBook]?.genre;
+    if (g) setOpenGenres((prev) => (prev.has(g) ? prev : new Set(prev).add(g)));
+  }, [navBook, booksByEn]);
+
   const navBookMeta = navBook ? booksByEn[navBook] : undefined;
   function submitChapter(e: React.FormEvent) {
     e.preventDefault();
@@ -250,7 +267,12 @@ export default function ReadPage() {
       <header className="sticky top-0 z-30 flex items-center gap-2 border-b px-3 py-2 backdrop-blur"
         style={{ backgroundColor: `${theme.bg}ee`, borderColor: `${theme.sub}33` }}>
         <Link href="/" className="shrink-0 opacity-70 hover:opacity-100" title="홈"><BookOpen size={18} /></Link>
-        <button onClick={() => { setNavBook(cur?.book_en ?? null); setNavFilter(""); setChInput(""); setNavOpen(true); }}
+        <button onClick={() => {
+          setNavBook(cur?.book_en ?? null); setNavFilter(""); setChInput("");
+          const g = cur ? booksByEn[cur.book_en]?.genre : undefined;
+          setOpenGenres(new Set(g ? [g] : []));
+          setNavOpen(true);
+        }}
           className="flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold hover:bg-black/5">
           {cur ? `${cur.book_ko} ${cur.chapter}장` : "불러오는 중…"}
         </button>
@@ -349,7 +371,8 @@ export default function ReadPage() {
       {/* Nav drawer (book/chapter) */}
       {navOpen && books && (
         <Overlay onClose={() => setNavOpen(false)} title="책 · 장 선택">
-          <form onSubmit={submitNavFilter} className="mb-3">
+          {/* 필터 — 시트를 스크롤해도 항상 상단에 고정 */}
+          <form onSubmit={submitNavFilter} className="sticky top-0 z-10 -mx-5 bg-white px-5 pb-3">
             <Input
               value={navFilter}
               onChange={(e) => setNavFilter(e.target.value)}
@@ -359,25 +382,51 @@ export default function ReadPage() {
             />
           </form>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.4fr]">
-            <div className="max-h-[48vh] overflow-y-auto pr-1">
-              {filteredBooks.length === 0 && (
-                <p className="py-6 text-center text-sm text-gray-400">일치하는 책이 없습니다</p>
-              )}
-              {groupByGenre(filteredBooks).map(([genre, list]) => (
-                <div key={genre} className="mb-3">
-                  <div className="mb-1 text-[0.7rem] font-semibold uppercase tracking-wide text-gray-400">{genre}</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {list.map((b) => (
-                      <button key={b.book_en} onClick={() => { setNavBook(b.book_en); setChInput(""); }}
-                        className={`rounded-full border px-2.5 py-1 text-[0.8rem] ${navBook === b.book_en ? "border-primary bg-primary/10 text-primary" : "border-gray-200 text-gray-600 hover:border-gray-400"}`}>
-                        {b.book_ko}
-                      </button>
+            <div>
+              {navParsed.name ? (
+                /* 필터 중 — 일치하는 책을 균일 그리드로 평면 표시 */
+                filteredBooks.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-gray-400">일치하는 책이 없습니다</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {filteredBooks.map((b) => (
+                      <BookButton key={b.book_en} book={b} selected={navBook === b.book_en}
+                        onClick={() => { setNavBook(b.book_en); setChInput(""); }} />
                     ))}
                   </div>
-                </div>
-              ))}
+                )
+              ) : (
+                /* 기본 — 카테고리 접이식(아코디언), 현재 책의 카테고리만 펼침 */
+                groupByGenre(books).map(([genre, list]) => {
+                  const open = openGenres.has(genre);
+                  const hasSel = list.some((b) => b.book_en === navBook);
+                  return (
+                    <div key={genre}>
+                      <button type="button" onClick={() => toggleGenre(genre)}
+                        className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left hover:bg-gray-50">
+                        <span className="flex items-center gap-1.5 text-[0.78rem] font-semibold text-gray-600">
+                          {genre}
+                          {hasSel && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                        </span>
+                        <span className="flex items-center gap-1 text-[0.68rem] text-gray-400">
+                          {list.length}권
+                          <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+                        </span>
+                      </button>
+                      {open && (
+                        <div className="mb-2 mt-1 grid grid-cols-3 gap-1.5">
+                          {list.map((b) => (
+                            <BookButton key={b.book_en} book={b} selected={navBook === b.book_en}
+                              onClick={() => { setNavBook(b.book_en); setChInput(""); }} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
-            <div className="max-h-[48vh] overflow-y-auto">
+            <div>
               {navBookMeta && (
                 <>
                   <div className="mb-2 text-sm font-semibold text-gray-700">{navBookMeta.book_ko}</div>
@@ -395,12 +444,17 @@ export default function ReadPage() {
                     <Button type="submit" size="sm" className="h-9 px-4" disabled={!chInput}>이동</Button>
                   </form>
                   <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
-                    {Array.from({ length: navBookMeta.chapter_count }, (_, i) => i + 1).map((c) => (
-                      <button key={c} onClick={() => goTo(navBook!, c)}
-                        className="rounded-md border border-gray-200 py-1.5 text-sm text-gray-700 hover:border-primary hover:text-primary">
-                        {c}
-                      </button>
-                    ))}
+                    {Array.from({ length: navBookMeta.chapter_count }, (_, i) => i + 1).map((c) => {
+                      const isCur = navBook === cur?.book_en && c === cur.chapter;
+                      return (
+                        <button key={c} onClick={() => goTo(navBook!, c)}
+                          className={`rounded-md border py-1.5 text-sm ${isCur
+                            ? "border-primary bg-primary font-semibold text-white"
+                            : "border-gray-200 text-gray-700 hover:border-primary hover:text-primary"}`}>
+                          {c}
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -530,18 +584,32 @@ export default function ReadPage() {
   );
 }
 
-// 공용 바텀시트/모달
+// 공용 바텀시트/모달 — 내용이 길어도 시트가 화면을 넘지 않도록 max-h + 내부 스크롤
 function Overlay({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between">
+      <div className="flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-2xl bg-white shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-5">
           <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
         </div>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+          {children}
+        </div>
       </div>
     </div>
+  );
+}
+
+// 책 선택 버튼 — 균일 그리드 셀, 선택 시 채움색으로 강조(초성이 여러 책과 겹칠 때 식별용)
+function BookButton({ book, selected, onClick }: { book: BookMeta; selected: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={book.book_ko}
+      className={`w-full truncate rounded-md border px-2 py-1.5 text-center text-[0.8rem] transition-colors ${selected
+        ? "border-primary bg-primary font-semibold text-white shadow-sm"
+        : "border-gray-200 text-gray-600 hover:border-primary/50 hover:bg-primary/5 hover:text-primary"}`}>
+      {book.book_ko}
+    </button>
   );
 }
 
