@@ -1,4 +1,4 @@
-import { loadBible, type BibleVerse } from "@/lib/passages";
+import { loadBible, loadBibleMap, type BibleVerse } from "@/lib/passages";
 import { toChosung, isChosungQuery } from "@/lib/chosung";
 
 // 리더용 절 DTO (본문 표시에 필요한 필드만)
@@ -30,6 +30,29 @@ export function getChapter(bookEn: string, chapter: number): ReaderVerse[] {
     .filter((v) => v.book_en === bookEn && v.chapter === chapter)
     .sort((a, b) => a.verse - b.verse)
     .map(toReaderVerse);
+}
+
+/**
+ * 절 하나 + 앞뒤 문맥. AI 기능이 **클라이언트가 보낸 본문을 믿지 않고** 서버에서 직접 읽기 위한 통로.
+ * (클라 본문을 그대로 프롬프트에 넣으면 변조된 "성경 본문"으로 답을 유도할 수 있다.)
+ */
+export interface VerseContext {
+  verse: ReaderVerse;
+  before: ReaderVerse[];
+  after: ReaderVerse[];
+}
+
+export function getVerseContext(key: string, radius = 3): VerseContext | null {
+  const target = loadBibleMap().get(key);
+  if (!target) return null;
+  const chapter = getChapter(target.book_en, target.chapter);
+  const i = chapter.findIndex((v) => v.key === key);
+  if (i < 0) return null;
+  return {
+    verse: chapter[i],
+    before: chapter.slice(Math.max(0, i - radius), i),
+    after: chapter.slice(i + 1, i + 1 + radius),
+  };
 }
 
 // --- 자음(초성) + 본문 검색 인덱스 (로드 시 1회 캐시, 공백 제거 상태로 저장) ---
