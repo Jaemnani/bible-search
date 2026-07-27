@@ -29,15 +29,24 @@ export interface ReaderSettings {
 }
 export interface ReadingPosition { book_en: string; chapter: number }
 
+/** 말씀 듣기 설정 — voiceUri 는 기기 내장 음성 식별자(기기마다 다름, 없으면 자동 선택). */
+export interface ListenSettings {
+  rate: number;
+  voiceUri: string | null;
+  autoAdvance: boolean;
+}
+
 const K = {
   highlights: "bible.reader.highlights",
   notes: "bible.reader.notes",
   drawings: "bible.reader.drawings",
   settings: "bible.reader.settings",
   position: "bible.reader.position",
+  listen: "bible.reader.listen",
 };
 
 export const DEFAULT_SETTINGS: ReaderSettings = { fontSize: 18, theme: "light", lang: "ko" };
+export const DEFAULT_LISTEN: ListenSettings = { rate: 1, voiceUri: null, autoAdvance: true };
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -76,6 +85,12 @@ export const loadSettings = (): ReaderSettings => {
 export const saveSettings = (s: ReaderSettings) => write(K.settings, s);
 export const loadPosition = (): ReadingPosition | null => read<ReadingPosition | null>(K.position, null);
 export const savePosition = (p: ReadingPosition) => write(K.position, p);
+
+export const loadListen = (): ListenSettings => ({
+  ...DEFAULT_LISTEN,
+  ...read<Partial<ListenSettings>>(K.listen, {}),
+});
+export const saveListen = (s: ListenSettings) => write(K.listen, s);
 
 export const HIGHLIGHT_HEX: Record<HighlightColor, string> = {
   yellow: "#fde68a",
