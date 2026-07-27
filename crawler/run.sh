@@ -19,6 +19,7 @@ trap finish EXIT
 
 discord_send "▶ 구절 미디어 크롤 시작 ($(hostname 2>/dev/null || echo ?))"
 
-# 실제 수집(YouTube/책 → verse_media 적재)은 fetch_verse_media.py 가 담당(현재 dry-run 스텁).
+# 실제 수집(YouTube/Google Books → verse_media 적재)은 fetch_verse_media.py 가 담당.
+# 인자 없이 부르면 dry-run 이다 — 적재하려면 --commit 을 넘겨야 한다(cron 라인 참고).
 python3 fetch_verse_media.py "$@" 2>&1 | tee -a "$LOG"
 exit "${PIPESTATUS[0]}"
